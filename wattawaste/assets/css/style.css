@@ -1,0 +1,47 @@
+/* sidebar.css */
+.sidebar {
+    width: 270px;
+    height: 100vh;
+    background: linear-gradient(to bottom, #23ed99ff, #0f8156ff);
+    color: #ffffff;
+    position: fixed;
+    left: 0;
+    top: 0;
+    padding: 20px 0;
+    box-shadow: 4px 0 15px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    transition: 0.3s ease;
+    scrollbar-width: none;
+}
+.sidebar::-webkit-scrollbar { display: none; }
+
+/* Logo */
+.sidebar .logo { text-align: center; font-size: 32px; font-weight: 800; margin-bottom: 35px; }
+
+/* Menu */
+.sidebar ul { list-style: none; padding: 0; margin: 0; }
+.sidebar ul li { margin: 8px 0; }
+.sidebar ul li a {
+    display: flex; align-items: center; padding: 12px 20px;
+    text-decoration: none; color: #d0d0d0; font-size: 15px;
+    border-radius: 12px; transition: 0.25s ease; font-weight: 400;
+}
+.sidebar ul li a i { margin-right: 12px; font-size: 30px; opacity: 0.9; }
+.sidebar ul li a:hover,
+.sidebar ul li a.active {
+    background: linear-gradient(135deg, #3e61ff, #8e44ff);
+    color: #ffffff; font-weight: 700;
+    box-shadow: 0 4px 12px rgba(98, 75, 255, 0.4);
+}
+
+/* Divider & Logout */
+.sidebar .divider { width: 80%; height: 1px; background: rgba(255,255,255,0.15); margin: 18px auto; }
+.sidebar .logout { margin-top: auto; padding: 0 20px; }
+.sidebar .logout a {
+    background: #ff4d4d; color: white !important; text-align: center;
+    justify-content: center; padding: 12px 20px; border-radius: 12px;
+    font-weight: 500; transition: 0.25s;
+}
+.sidebar .logout a:hover { background: #ff2d2d; transform: translateY(-3px); box-shadow: 0 4px 12px rgba(255, 77, 77, 0.4); }
