@@ -1,21 +1,57 @@
 <?php
 
+/** 
+ * 1. ✅ Load Firebase
+ */
+require_once 'firebase_config.php';
+$database = getDatabase();
+
+/**
+ * 2. 🔥 Fetch latest sensor values from Firebase
+ */
+$firebaseTemp     = $database->getReference("sensors/temperature/latest/value")->getValue();
+$firebaseHumidity = $database->getReference("sensors/humidity/latest/value")->getValue();
+$firebaseGas      = $database->getReference("sensors/gas/latest/value")->getValue();
+$firebasePH       = $database->getReference("sensors/ph/latest/value")->getValue();
+$firebaseWeight   = $database->getReference("sensors/weight/latest/value")->getValue();
+$firebaseCapacity = $database->getReference("sensors/weight/latest/capacity")->getValue();
+
+/**
+ * 3. 🛑 If Firebase values exist → use them. 
+ *    If not → fallback to MySQL.
+ */
 $conn = new mysqli("localhost", "root", "", "wattawaste_system");
-if ($conn->connect_error) { die("Connection failed: " . $conn->connect_error); }
+if ($conn->connect_error) { 
+    die("Connection failed: " . $conn->connect_error); 
+}
 
-$temp = ($conn->query("SELECT Temp_Ave FROM temperatures ORDER BY Temp_Id DESC LIMIT 1")->fetch_assoc()['Temp_Ave'] ?? 0);
+$temp = $firebaseTemp !== null
+    ? $firebaseTemp
+    : ($conn->query("SELECT Temp_Ave FROM temperatures ORDER BY Temp_Id DESC LIMIT 1")->fetch_assoc()['Temp_Ave'] ?? 0);
 
-$humidity = ($conn->query("SELECT Humid_Lvl FROM humidity ORDER BY Humid_Id DESC LIMIT 1")->fetch_assoc()['Humid_Lvl'] ?? 0);
+$humidity = $firebaseHumidity !== null
+    ? $firebaseHumidity
+    : ($conn->query("SELECT Humid_Lvl FROM humidity ORDER BY Humid_Id DESC LIMIT 1")->fetch_assoc()['Humid_Lvl'] ?? 0);
 
-$gas = ($conn->query("SELECT Gas_Lvl FROM gas ORDER BY Gas_Id DESC LIMIT 1")->fetch_assoc()['Gas_Lvl'] ?? 0);
+$gas = $firebaseGas !== null
+    ? $firebaseGas
+    : ($conn->query("SELECT Gas_Lvl FROM gas ORDER BY Gas_Id DESC LIMIT 1")->fetch_assoc()['Gas_Lvl'] ?? 0);
 
-$phQuery = "SELECT pH_Value FROM ph ORDER BY pH_Id DESC LIMIT 1";
-$ph = $conn->query($phQuery)->fetch_assoc()['pH_Value'] ?? 0;
+$ph = $firebasePH !== null
+    ? $firebasePH
+    : ($conn->query("SELECT pH_Value FROM ph ORDER BY pH_Id DESC LIMIT 1")->fetch_assoc()['pH_Value'] ?? 0);
 
-$w = $conn->query("SELECT Weight_Capacity, Weight_Lvl FROM weights ORDER BY Weight_Id DESC LIMIT 1")->fetch_assoc()
-     ?? ['Weight_Capacity'=>0,'Weight_Lvl'=>0];
-$capacity = $w['Weight_Capacity']; $currentWeight = $w['Weight_Lvl'];
+$capacity = $firebaseCapacity !== null
+    ? $firebaseCapacity
+    : 0;
 
+$currentWeight = $firebaseWeight !== null
+    ? $firebaseWeight
+    : 0;
+
+/**
+ * 4. 🌡 Compost Stage Calculation (unchanged)
+ */
 if ($temp >= 45 && $temp <= 70 && $ph >= 6.5 && $ph <= 8.0 && $humidity >= 40 && $humidity <= 60) {
   $stage = "Thermophilic Stage (Active Decomposition)";
   $stage_desc = "The compost is in its most active phase. High heat indicates rapid microbial activity and pathogen destruction.";
