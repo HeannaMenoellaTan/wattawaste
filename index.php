@@ -17,37 +17,14 @@ $firebaseWeight   = $database->getReference("sensors/weight/latest/value")->getV
 $firebaseCapacity = $database->getReference("sensors/weight/latest/capacity")->getValue();
 
 /**
- * 3. 🛑 If Firebase values exist → use them. 
- *    If not → fallback to MySQL.
+ * 3. 🛑 Set sensor values (with fallback to 0 if null)
  */
-$conn = new mysqli("localhost", "root", "", "wattawaste_system");
-if ($conn->connect_error) { 
-    die("Connection failed: " . $conn->connect_error); 
-}
-
-$temp = $firebaseTemp !== null
-    ? $firebaseTemp
-    : ($conn->query("SELECT Temp_Ave FROM temperatures ORDER BY Temp_Id DESC LIMIT 1")->fetch_assoc()['Temp_Ave'] ?? 0);
-
-$humidity = $firebaseHumidity !== null
-    ? $firebaseHumidity
-    : ($conn->query("SELECT Humid_Lvl FROM humidity ORDER BY Humid_Id DESC LIMIT 1")->fetch_assoc()['Humid_Lvl'] ?? 0);
-
-$gas = $firebaseGas !== null
-    ? $firebaseGas
-    : ($conn->query("SELECT Gas_Lvl FROM gas ORDER BY Gas_Id DESC LIMIT 1")->fetch_assoc()['Gas_Lvl'] ?? 0);
-
-$ph = $firebasePH !== null
-    ? $firebasePH
-    : ($conn->query("SELECT pH_Value FROM ph ORDER BY pH_Id DESC LIMIT 1")->fetch_assoc()['pH_Value'] ?? 0);
-
-$capacity = $firebaseCapacity !== null
-    ? $firebaseCapacity
-    : 0;
-
-$currentWeight = $firebaseWeight !== null
-    ? $firebaseWeight
-    : 0;
+$temp = $firebaseTemp ?? 0;
+$humidity = $firebaseHumidity ?? 0;
+$gas = $firebaseGas ?? 0;
+$ph = $firebasePH ?? 0;
+$capacity = $firebaseCapacity ?? 0;
+$currentWeight = $firebaseWeight ?? 0;
 
 /**
  * 4. 🌡 Compost Stage Calculation (unchanged)

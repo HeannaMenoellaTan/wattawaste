@@ -1,32 +1,53 @@
 <?php
 session_start();
-include('db.php'); // make sure this connects to your DB
+require_once('firebase_config.php');
 
 $error = '';
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $username = mysqli_real_escape_string($conn, $_POST['username']);
-    $password = mysqli_real_escape_string($conn, $_POST['password']);
-
-    $query = "SELECT * FROM users WHERE Username='$username' AND Password='$password' AND Status='Active'";
-    $result = mysqli_query($conn, $query);
-
-    if (mysqli_num_rows($result) == 1) {
-        $row = mysqli_fetch_assoc($result);
-
-        // store data in session
-        $_SESSION['username'] = $row['Username'];
-        $_SESSION['role'] = $row['Role'];
-
-        // redirect depending on role
-        if ($row['Role'] == 'Admin') {
-            header("Location: admin_dasboard.php");
+    try {
+        $username = trim($_POST['username']);
+        $password = trim($_POST['password']);
+        
+        // Get Firebase database instance
+        $database = getDatabase();
+        
+        // Query users from Firebase
+        // Assuming your Firebase structure is: users/{userId}/{Username, Password, Role, Status}
+        $usersRef = $database->getReference('users');
+        $snapshot = $usersRef->orderByChild('Username')->equalTo($username)->getSnapshot();
+        
+        if ($snapshot->exists()) {
+            $users = $snapshot->getValue();
+            
+            // Get the first (and should be only) matching user
+            $userData = reset($users);
+            $userId = key($users);
+            
+            // Verify password and status
+            if ($userData['Password'] === $password && $userData['Status'] === 'Active') {
+                // Store data in session
+                $_SESSION['username'] = $userData['Username'];
+                $_SESSION['role'] = $userData['Role'];
+                $_SESSION['user_id'] = $userId;
+                
+                // Redirect depending on role
+                if ($userData['Role'] === 'Admin') {
+                    header("Location: admin_dasboard.php");
+                } else {
+                    header("Location: index.php");
+                }
+                exit();
+            } else {
+                $error = "Invalid Credentials";
+            }
         } else {
-            header("Location: index.php");
+            $error = "Invalid Credentials";
         }
-        exit();
-    } else {
-        $error = "Invalid Credentials";
+        
+    } catch (Exception $e) {
+        error_log("Login error: " . $e->getMessage());
+        $error = "An error occurred. Please try again.";
     }
 }
 ?>
@@ -63,6 +84,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         margin: 8px 0;
         border-radius: 8px;
         border: 1px solid #ccc;
+        box-sizing: border-box;
     }
     .login-btn {
         background-color: #4caf50;
@@ -73,6 +95,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         border-radius: 8px;
         font-size: 16px;
         cursor: pointer;
+    }
+    .login-btn:hover {
+        background-color: #45a049;
     }
     .error {
         color: red;
@@ -94,7 +119,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <input type="password" name="password" placeholder="Password" required><br>
         <button type="submit" class="login-btn">Log-In</button>
     </form>
-    <p>Don’t have an account? <a href="#">Sign Up</a></p>
+    <p>Don't have an account? <a href="#">Sign Up</a></p>
 </div>
 </body>
 </html>
