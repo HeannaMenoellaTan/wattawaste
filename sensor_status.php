@@ -1,25 +1,19 @@
 <?php
 header("Content-Type: application/json");
 
-// ==== DATABASE CONNECTION ====
-$conn = new mysqli("localhost", "root", "", "wattawaste_system");
-if ($conn->connect_error) {
-    echo json_encode(["error" => "Database connection failed"]);
-    exit;
-}
+require_once 'firebase_config.php';
 
 date_default_timezone_set('Asia/Manila');
 
 // ==== SENSOR STATUS CHECK FUNCTION ====
-function getSensorStatus($created_at) {
-    if (!$created_at || $created_at == "0000-00-00 00:00:00") {
+function getSensorStatus($timestamp) {
+    if (!$timestamp || $timestamp <= 0) {
         return ["Faulty", "faulty", "No data"];
     }
-
-    $last = strtotime($created_at);
+    
     $now = time();
-    $diff = $now - $last;
-
+    $diff = $now - $timestamp;
+    
     if ($diff <= 10) {
         return ["Online", "online", $diff . "s ago"];
     } 
@@ -32,36 +26,63 @@ function getSensorStatus($created_at) {
     return ["Faulty", "faulty", $diff . "s ago"];
 }
 
-// ==== SENSOR QUERIES ====
-$sensors = [
-    "Temperature" => "SELECT Created_At AS created_at FROM temperatures ORDER BY Temp_Id DESC LIMIT 1",
-    "Humidity"    => "SELECT Created_At AS created_at FROM humidity ORDER BY Humid_Id DESC LIMIT 1",
-    "Gas"         => "SELECT Created_At AS created_at FROM gas ORDER BY Gas_Id DESC LIMIT 1",
-    "pH"          => "SELECT Created_At AS created_at FROM ph ORDER BY pH_Id DESC LIMIT 1"
-];
-
-$output = [];
-
-foreach ($sensors as $name => $query) {
-    $result = $conn->query($query);
-
-    if ($result && $result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        list($status, $class, $timeAgo) = getSensorStatus($row["created_at"]);
-    } else {
-        $status = "Faulty";
-        $class = "faulty";
-        $timeAgo = "No data";
+// ==== FETCH SENSOR DATA FROM FIREBASE ====
+function fetchSensorData($database, $sensorType, $displayName) {
+    try {
+        $latestRef = $database->getReference("sensors/$sensorType/latest");
+        $snapshot = $latestRef->getSnapshot();
+        
+        if (!$snapshot->exists()) {
+            return [
+                "name" => $displayName,
+                "status" => "Faulty",
+                "class" => "faulty",
+                "lastUpdate" => "No data"
+            ];
+        }
+        
+        $data = $snapshot->getValue();
+        $timestamp = $data['timestamp'] ?? null;
+        
+        list($status, $class, $timeAgo) = getSensorStatus($timestamp);
+        
+        return [
+            "name" => $displayName,
+            "status" => $status,
+            "class" => $class,
+            "lastUpdate" => $timeAgo
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Sensor fetch error for $sensorType: " . $e->getMessage());
+        return [
+            "name" => $displayName,
+            "status" => "Faulty",
+            "class" => "faulty",
+            "lastUpdate" => "Error"
+        ];
     }
-
-    $output[] = [
-        "name" => $name,
-        "status" => $status,
-        "class" => $class,
-        "lastUpdate" => $timeAgo
-    ];
 }
 
-echo json_encode($output);
+try {
+    $database = getDatabase();
+    
+    // ==== FETCH ALL SENSORS ====
+    $output = [
+        fetchSensorData($database, 'temperature', 'Temperature'),
+        fetchSensorData($database, 'humidity', 'Humidity'),
+        fetchSensorData($database, 'gas', 'Gas'),
+        fetchSensorData($database, 'ph', 'pH')
+    ];
+    
+    echo json_encode($output);
+    
+} catch (Exception $e) {
+    error_log("Sensor status error: " . $e->getMessage());
+    echo json_encode([
+        "error" => "Failed to fetch sensor status",
+        "message" => $e->getMessage()
+    ]);
+}
 exit;
 ?>

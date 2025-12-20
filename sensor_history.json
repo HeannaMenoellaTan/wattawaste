@@ -1,0 +1,9 @@
+{
+  "ph_id_1": { "value": 7.0, "timestamp": 1734567800 },
+  "ph_id_2": { "value": 7.1, "timestamp": 1734567850 },
+  "ph_id_3": { "value": 7.15, "timestamp": 1734567890 },
+  "ph_id_4": { "value": 7.2, "timestamp": 1734567920 },
+  "ph_id_5": { "value": 7.3, "timestamp": 1734567950 },
+  "ph_id_6": { "value": 7.25, "timestamp": 1734567980 },
+  "ph_id_7": { "value": 7.2, "timestamp": 1734568010 }
+}

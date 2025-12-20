@@ -1,25 +1,49 @@
 <?php
-// ==== SENSOR STATUS FUNCTION ====
-function getSensorStatus($conn, $table, $valueField, $timeField) {
-    $q = $conn->query("SELECT $valueField, $timeField FROM $table ORDER BY $timeField DESC LIMIT 1");
-    if (!$q || $q->num_rows == 0) return ['status'=>'faulty','time'=>'No data'];
+require_once 'firebase_config.php';
 
-    $row = $q->fetch_assoc();
-    $val = $row[$valueField];
-    $time = strtotime($row[$timeField]);
-    $diff = time() - $time;
-
-    if ($val === null || $val < 0) return ['status'=>'faulty','time'=>$diff];
-    if ($diff <= 10) return ['status'=>'online','time'=>$diff];
-    if ($diff <= 30) return ['status'=>'delayed','time'=>$diff];
-    return ['status'=>'offline','time'=>$diff];
+// ==== SENSOR STATUS FUNCTION FOR FIREBASE ====
+function getSensorStatus($database, $sensorType) {
+    try {
+        // Get latest sensor data from Firebase
+        $latestRef = $database->getReference("sensors/$sensorType/latest");
+        $snapshot = $latestRef->getSnapshot();
+        
+        if (!$snapshot->exists()) {
+            return ['status' => 'faulty', 'time' => 'No data'];
+        }
+        
+        $data = $snapshot->getValue();
+        $val = $data['value'] ?? null;
+        $timestamp = $data['timestamp'] ?? null;
+        
+        if ($val === null || $val < 0 || $timestamp === null) {
+            return ['status' => 'faulty', 'time' => 'Invalid data'];
+        }
+        
+        $diff = time() - $timestamp;
+        
+        if ($diff <= 10) {
+            return ['status' => 'online', 'time' => $diff];
+        } elseif ($diff <= 30) {
+            return ['status' => 'delayed', 'time' => $diff];
+        } else {
+            return ['status' => 'offline', 'time' => $diff];
+        }
+        
+    } catch (Exception $e) {
+        error_log("Sensor status error for $sensorType: " . $e->getMessage());
+        return ['status' => 'faulty', 'time' => 'Error'];
+    }
 }
 
-// Fetch statuses
-$tempStatus = getSensorStatus($conn,'temperatures','Temp_Ave','Created_At');
-$humStatus  = getSensorStatus($conn,'humidity','Humid_Lvl','Created_At');
-$gasStatus  = getSensorStatus($conn,'gas','Gas_Lvl','Created_At');
-$phStatus   = getSensorStatus($conn,'ph','pH_Value','Created_At');
+// Get database instance
+$database = getDatabase();
+
+// Fetch statuses for all sensors
+$tempStatus = getSensorStatus($database, 'temperature');
+$humStatus  = getSensorStatus($database, 'humidity');
+$gasStatus  = getSensorStatus($database, 'gas');
+$phStatus   = getSensorStatus($database, 'ph');
 
 $sensors = [
     'Temperature' => $tempStatus,
@@ -68,7 +92,10 @@ $sensors = [
 
         <!-- FAULTY SENSOR COUNT -->
         <div class="faulty" id="faultyText">
-            ⚠️ 0 Faulty Sensors
+            ⚠️ <?php 
+                $faultyCount = count(array_filter($sensors, fn($s) => $s['status'] === 'faulty'));
+                echo $faultyCount . ' Faulty Sensor' . ($faultyCount !== 1 ? 's' : '');
+            ?>
         </div>
 
         <!-- PROFILE DROPDOWN -->
@@ -104,28 +131,27 @@ body {
     border-radius: 12px;
     margin-bottom: 20px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    transition: transform 0.3s ease; /* for smooth hide/show */
+    transition: transform 0.3s ease;
 }
 .top-nav.hidden {
-    transform: translateY(-120%); /* moves it up out of view */
+    transform: translateY(-120%);
 }
 .page-title { color:#2E7D32; font-weight:700; font-size:1.25rem; }
 .top-right .datetime { color:#2E7D32; opacity:.85; font-weight:600; }
-.dropdown-menu { min-width:250px;  z-index: 4000;}
+.dropdown-menu { min-width:250px; z-index: 4000;}
 .dropdown-item { display:flex; justify-content:space-between; align-items:center; }
-/* Cards should not block dropdown */
 .card, .dashboard-container {
-    position: relative;   /* keep for shadows */
-    z-index: 1;           /* low enough so dropdown is on top */
+    position: relative;
+    z-index: 1;
 }
 .dot { width:10px; height:10px; border-radius:50%; margin-left:8px; }
-.dot.online  { background:#2ecc71; }
-.dot.delayed { background:#f1c40f; }
+.dot.online  { background:#2ecc71; box-shadow: 0 0 8px rgba(46,204,113,0.5); }
+.dot.delayed { background:#f1c40f; box-shadow: 0 0 8px rgba(241,196,15,0.5); }
 .dot.offline { background:#e74c3c; }
 .dot.faulty  { background:#7f8c8d; }
 .faulty { font-size:14px; font-weight:600; color:#E65100; }
 .main {
-    padding-top: 0; /* no extra padding needed if sticky inside main */
+    padding-top: 0;
 }
 </style>
 
@@ -147,10 +173,10 @@ function updateFaultyCount() {
 }
 updateFaultyCount();
 
-// Optional: live refresh of sensor dropdown
+// Live refresh of sensor dropdown from Firebase
 async function refreshSensors(){
     try{
-        const res = await fetch('sensor_status.php'); // JSON array of sensors
+        const res = await fetch('sensor_status.php');
         const data = await res.json();
         const dropdown = document.querySelector('#sensorDropdown + .dropdown-menu');
         dropdown.innerHTML = '';
@@ -172,20 +198,20 @@ async function refreshSensors(){
     } catch(e){ console.error('Sensor fetch error', e); }
 }
 setInterval(refreshSensors, 3000);
+
+// Auto-hide navigation on scroll down
 let lastScroll = 0;
 const topNav = document.querySelector('.top-nav');
 
 window.addEventListener('scroll', () => {
     const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
-    if (currentScroll > lastScroll) {
-        // scrolling down
+    if (currentScroll > lastScroll && currentScroll > 80) {
         topNav.classList.add('hidden');
     } else {
-        // scrolling up
         topNav.classList.remove('hidden');
     }
-    lastScroll = currentScroll <= 0 ? 0 : currentScroll; // avoid negative scroll
-});
+    lastScroll = currentScroll <= 0 ? 0 : currentScroll;
+);
 </script>
 
 <!-- Bootstrap JS -->
