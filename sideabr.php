@@ -1,14 +1,5 @@
- <!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>WattAWaste Bin</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
- 
- <div class="sidebar text-center">
+<!-- Sidebar -->
+<div class="sidebar text-center">
     <div class="logo mb-4">
       <div class="logo-circle mb-2" style="width:80px;height:80px;border-radius:50%;overflow:hidden;margin:auto;box-shadow:0 0 10px rgba(76,175,80,0.4);">
         <img src="images/qculogo.png" alt="QCU Logo" style="width:100%;height:100%;object-fit:cover;">
@@ -18,18 +9,12 @@
     </div>
     <ul class="menu">
   <li><a href="index.php"><i class="fa fa-home"></i> Dashboard</a></li>
-
-    <!-- Sensors Main -->
-  
-
-    <!-- 🔽 Sensor Categories -->
     <li><a href="temperature.php"><i class="fa fa-thermometer-half"></i> Temperature</a></li>
     <li><a href="humidity.php"><i class="fa fa-tint"></i> Humidity</a></li>
     <li><a href="gas.php"><i class="fa fa-fire"></i> Gas Level</a></li>
     <li><a href="ph.php"><i class="fa fa-flask"></i> pH Level</a></li>
     <li><a href="weight.php"><i class="fa fa-balance-scale"></i> Weight</a></li>
     <li><a href="data.php"><i class="fa fa-chart-line"></i> Data Analytics</a></li>
-
 </ul>
 
   <hr style="opacity:0.2; margin:10px 0;">
@@ -40,12 +25,7 @@
     </div>
 </div>
 
-<!-- FontAwesome Icons -->
-
 <style>
-
-
-  /* Sidebar Container */
   .sidebar {
     width: 260px;
     height: 100vh;
@@ -57,39 +37,35 @@
     padding: 20px 0;
     box-shadow: 4px 0 15px rgba(0,0,0,0.2);
     display: flex;
-     overflow-y: auto;    /* ✅ allows scrolling */
+    overflow-y: auto;
     flex-direction: column;
     transition: 0.3s ease;
-     scrollbar-width: none;   /* Firefox */
+    scrollbar-width: none;
   }
-.sidebar::-webkit-scrollbar {
-    display: none;           /* Chrome, Edge, Safari */
-}
-.sidebar .logo {
+  
+  .sidebar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .sidebar .logo {
     text-align: center;
     font-size: 15px;
     font-weight: 800;
     letter-spacing: 1px;
     margin-bottom: 35px;
     color: #140b5fff;
-
   }
 
-
-
-  /* Menu List */
   .sidebar ul {
     list-style: none;
     padding: 0;
     margin: 0;
   }
 
-  /* Each Menu Item */
   .sidebar ul li {
     margin: 8px 0;
   }
 
-  /* Premium Button Style */
   .sidebar ul li a {
     display: flex;
     align-items: center;
@@ -102,14 +78,12 @@
     font-weight: 400;
   }
 
-  /* Icon spacing */
   .sidebar ul li a i {
     margin-right: 12px;
     font-size: 30px;
     opacity: 0.9;
   }
 
-  /* Hover Effect – Premium Vibrant Glow */
   .sidebar ul li a:hover {
     background: linear-gradient(135deg, #3e61ff, #8e44ff);
     color: #ffffff;
@@ -117,7 +91,6 @@
     box-shadow: 0 4px 12px rgba(98, 75, 255, 0.4);
   }
 
-  /* Active / Current Page */
   .sidebar ul li a.active {
     background: linear-gradient(135deg, #3e61ff, #8e44ff);
     color: #ffffff;
@@ -125,7 +98,6 @@
     box-shadow: 0 4px 12px rgba(98, 75, 255, 0.4);
   }
 
-  /* Separator Line */
   .sidebar .divider {
     width: 80%;
     height: 1px;
@@ -133,7 +105,6 @@
     margin: 18px auto;
   }
 
-  /* Logout Button */
   .sidebar .logout {
     margin-top: auto;
     padding: 0 20px;
@@ -155,20 +126,9 @@
     transform: translateY(-3px);
     box-shadow: 0 4px 12px rgba(255, 77, 77, 0.4);
   }
-.main {
-  margin-left: 250px; /* same as sidebar width */
-  padding-top: 70px;  /* same as topnav height */
-  padding-left: 20px; /* optional for spacing */
-  padding-right: 20px;
-}
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(12px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-
-
-
+  
+  .main {
+    margin-left: 260px;
+    padding: 20px;
+  }
 </style>
-</body>
-</html>

@@ -1,9 +1,49 @@
 {
-  "ph_id_1": { "value": 7.0, "timestamp": 1734567800 },
-  "ph_id_2": { "value": 7.1, "timestamp": 1734567850 },
-  "ph_id_3": { "value": 7.15, "timestamp": 1734567890 },
-  "ph_id_4": { "value": 7.2, "timestamp": 1734567920 },
-  "ph_id_5": { "value": 7.3, "timestamp": 1734567950 },
-  "ph_id_6": { "value": 7.25, "timestamp": 1734567980 },
-  "ph_id_7": { "value": 7.2, "timestamp": 1734568010 }
+  "latest": {
+    "capacity": 50,
+    "timestamp": 1734567890,
+    "value": 21.5
+  },
+  "history": {
+    "weight_1734567800": {
+      "timestamp": 1734567800,
+      "value": 15.20
+    },
+    "weight_1734567850": {
+      "timestamp": 1734567850,
+      "value": 1.20
+    },
+    "weight_1734567890": {
+      "timestamp": 1734567890,
+      "value": 15.20
+    },
+    "weight_1734567920": {
+      "timestamp": 1734567920,
+      "value": 1.20
+    },
+    "weight_1734567950": {
+      "timestamp": 1734567950,
+      "value": 5.20
+    },
+    "weight_1734567980": {
+      "timestamp": 1734567980,
+      "value": 2.20
+    },
+    "weight_1734568010": {
+      "timestamp": 1734568010,
+      "value": 1.20
+    },
+    "weight_1734568040": {
+      "timestamp": 1734568040,
+      "value": 14.0
+    },
+    "weight_1734568070": {
+      "timestamp": 1734568070,
+      "value": 16.5
+    },
+    "weight_1734568100": {
+      "timestamp": 1734568100,
+      "value": 18.3
+    }
+  }
 }

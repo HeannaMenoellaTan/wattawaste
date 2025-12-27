@@ -1,43 +1,87 @@
+<?php echo "FILE VERSION: 2024-12-27 v5"; ?>
 <?php
-include('db.php');
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-// ==== Get Latest Weight Data ====
-$query = "SELECT * FROM weights ORDER BY Weight_Id DESC LIMIT 1";
-$result = $conn->query($query);
-$row = $result->fetch_assoc();
+echo "<!-- DEBUG START -->";
+echo "<!-- Testing Firebase Connection -->";
 
-$weight = $row['Weight_Lvl'] ?? 0;
-$weightCapacity = $row['Weight_Capacity'] ?? 100;
-$weightStatus = "Normal";
+require_once 'firebase_config.php';
 
-// Determine weight status
-if ($weight >= 80) {
-    $weightStatus = "Overload";
-    $statusColor = "#ef4444"; // red
-    $statusIcon = "fa-exclamation-triangle";
-} elseif ($weight >= 60) {
-    $weightStatus = "High";
-    $statusColor = "#f59e0b"; // yellow
-    $statusIcon = "fa-exclamation-circle";
-} else {
-    $weightStatus = "Normal";
-    $statusColor = "#22c55e"; // green
-    $statusIcon = "fa-check-circle";
+// ==== Get Latest Weight Data from Firebase ====
+try {
+    $database = getDatabase();
+    echo "<!-- Database connection successful -->";
+    
+    // Get latest weight
+    $latestRef = $database->getReference('sensors/weight/latest');
+    echo "<!-- Reference created: sensors/weight/latest -->";
+    
+    $latestSnapshot = $latestRef->getSnapshot();
+    echo "<!-- Snapshot retrieved -->";
+    echo "<!-- Snapshot exists: " . ($latestSnapshot->exists() ? 'YES' : 'NO') . " -->";
+    
+    if ($latestSnapshot->exists()) {
+        $latestData = $latestSnapshot->getValue();
+        echo "<!-- Latest data: " . print_r($latestData, true) . " -->";
+        
+        $currentWeight = $latestData['value'] ?? 0;
+        $weightCapacity = $latestData['capacity'] ?? 25;
+        
+        echo "<!-- Current Weight: $currentWeight -->";
+        echo "<!-- Capacity: $weightCapacity -->";
+    } else {
+        echo "<!-- NO DATA FOUND AT sensors/weight/latest -->";
+        $currentWeight = 0;
+        $weightCapacity = 25;
+    }
+    
+    if ($latestSnapshot->exists()) {
+        $latestData = $latestSnapshot->getValue();
+        $currentWeight = $latestData['value'] ?? 0;
+        $weightCapacity = $latestData['capacity'] ?? 25;
+    } else {
+        $currentWeight = 0;
+        $weightCapacity = 25;
+    }
+    
+    // Calculate fertilizer output (50% of current weight)
+    $fertilizerOutput = round($currentWeight * 0.5, 2);
+    
+    // Determine if bin is almost full (>80%)
+    $weightPercentage = ($currentWeight / $weightCapacity) * 100;
+    $showWarning = $weightPercentage >= 80;
+    
+    // ==== Fetch Weight History ====
+    $historyRef = $database->getReference('sensors/weight/history');
+    $historySnapshot = $historyRef
+        ->orderByChild('timestamp')
+        ->limitToLast(10)
+        ->getSnapshot();
+    
+    $historyData = [];
+    if ($historySnapshot->exists()) {
+        $historyValues = $historySnapshot->getValue();
+        foreach ($historyValues as $key => $item) {
+            $historyData[] = [
+                'timestamp' => $item['timestamp'] ?? time(),
+                'weight_added' => $item['value'] ?? 0,
+                'datetime' => isset($item['timestamp']) ? date('g:i A - F j, Y', $item['timestamp']) : 'N/A'
+            ];
+        }
+    }
+    
+    // Reverse to show newest first
+    $historyData = array_reverse($historyData);
+    
+} catch (Exception $e) {
+    error_log("Weight page error: " . $e->getMessage());
+    $currentWeight = 0;
+    $weightCapacity = 25;
+    $fertilizerOutput = 0;
+    $showWarning = false;
+    $historyData = [];
 }
-
-// ==== Fetch Weight History ====
-$queryHistory = "SELECT * FROM weights ORDER BY Weight_Id DESC LIMIT 10";
-$resultHistory = $conn->query($queryHistory);
-$historyData = [];
-while ($r = $resultHistory->fetch_assoc()) {
-    $historyData[] = $r;
-}
-
-// ==== Calculate KPI ====
-$values = array_column($historyData, 'Weight_Lvl');
-$avgWeight = round(array_sum($values)/count($values),2);
-$maxWeight = max($values);
-$minWeight = min($values);
 ?>
 
 <!DOCTYPE html>
@@ -45,28 +89,245 @@ $minWeight = min($values);
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Weight Dashboard</title>
+<title>Weight Level | WattAWaste</title>
 <link rel="stylesheet" href="assets/css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
-body { font-family: Arial, sans-serif; background:#f4f7f6; color:#2f5233; }
-.main { padding:20px; }
-h2 { text-align:center; margin-bottom:20px; }
-.top-row { display:flex; gap:15px; flex-wrap:wrap; justify-content:center; }
-.card { background:#fff; border-radius:12px; padding:15px; box-shadow:0 3px 6px rgba(0,0,0,0.1); text-align:center; }
-.current-weight { flex:1; min-width:220px; max-width:260px; }
-.graph-card { flex:2; min-width:300px; }
-.progress-bar { background:#eee; border-radius:6px; overflow:hidden; height:8px; margin:5px 0; }
-.progress { height:8px; border-radius:6px; }
-.kpi-row { display:flex; justify-content:center; gap:30px; margin:15px 0; font-size:14px; }
-.kpi { text-align:center; }
-.data-table { width:100%; border-collapse:collapse; margin-top:20px; }
-.data-table th, .data-table td { border:1px solid #ccc; padding:8px; text-align:center; }
-.data-table th { background:#e5f1e5; }
-.status-normal { color:#22c55e; }
-.status-high { color:#f59e0b; }
-.status-overload { color:#ef4444; }
+body { 
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #f0f4f0;
+    margin: 0;
+    padding: 0;
+}
+
+.main { 
+    padding: 30px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Warning Popup */
+.warning-popup {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border: 3px solid #ff6b6b;
+    border-radius: 15px;
+    padding: 30px 40px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    z-index: 10000;
+    text-align: center;
+    min-width: 400px;
+    animation: slideDown 0.4s ease;
+}
+
+.warning-popup.show {
+    display: block;
+}
+
+.warning-popup-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 9999;
+}
+
+.warning-popup-overlay.show {
+    display: block;
+}
+
+.warning-popup i {
+    color: #ff6b6b;
+    font-size: 48px;
+    margin-bottom: 15px;
+    animation: pulse 2s infinite;
+}
+
+.warning-popup h3 {
+    color: #d63031;
+    font-size: 20px;
+    margin: 10px 0;
+}
+
+.warning-popup p {
+    color: #636e72;
+    margin-bottom: 20px;
+}
+
+.warning-popup button {
+    background: #ff6b6b;
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.3s ease;
+}
+
+.warning-popup button:hover {
+    background: #ee5a6f;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translate(-50%, -60%);
+        opacity: 0;
+    }
+    to {
+        transform: translate(-50%, -50%);
+        opacity: 1;
+    }
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+/* Cards Container */
+.cards-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 25px;
+    margin-bottom: 30px;
+}
+
+.weight-card {
+    background: white;
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.weight-card h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: #2d3436;
+}
+
+.weight-value {
+    font-size: 42px;
+    font-weight: bold;
+    color: #2d3436;
+    margin-bottom: 5px;
+}
+
+.weight-capacity {
+    font-size: 14px;
+    color: #636e72;
+    margin-bottom: 15px;
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    width: 100%;
+    height: 12px;
+    background: #e8e8e8;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 10px;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    border-radius: 10px;
+    transition: width 0.5s ease, background 0.3s ease;
+}
+
+/* History Table */
+.history-section {
+    background: white;
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.history-section h3 {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: #2d3436;
+}
+
+.history-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.history-table thead {
+    background: #5f6368;
+    color: white;
+}
+
+.history-table th {
+    padding: 15px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.history-table td {
+    padding: 15px;
+    border-bottom: 1px solid #e8e8e8;
+    font-size: 14px;
+    color: #2d3436;
+}
+
+.history-table tbody tr {
+    transition: background 0.2s ease;
+}
+
+.history-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.history-table tbody tr:nth-child(even) {
+    background: #fafafa;
+}
+
+.history-table tbody tr:nth-child(even):hover {
+    background: #f0f0f0;
+}
+
+.history-table tbody tr.highlight {
+    background: #ffe5e5;
+}
+
+.history-table tbody tr.highlight:hover {
+    background: #ffd0d0;
+}
+
+.no-data {
+    text-align: center;
+    padding: 40px;
+    color: #999;
+    font-style: italic;
+}
+
+@media (max-width: 768px) {
+    .cards-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .history-table {
+        font-size: 12px;
+    }
+    
+    .history-table th,
+    .history-table td {
+        padding: 10px;
+    }
+}
 </style>
 </head>
 <body>
@@ -74,98 +335,102 @@ h2 { text-align:center; margin-bottom:20px; }
 <?php include 'sideabr.php'; ?>
 
 <div class="main">
-
-
 <?php include 'topnav.php'; ?>
-<h2>⚖️ Weight Dashboard</h2>
-<div class="top-row">
-    <!-- Current Weight -->
-    <div class="card current-weight">
-        <h3><i class="fas fa-weight-hanging"></i> Current Weight</h3>
-        <p style="font-size:22px; font-weight:bold; margin:5px 0;"><?= $weight ?> kg</p>
-        <p style="color:#555; font-size:14px; margin:2px 0;">Capacity: <?= $weightCapacity ?> kg</p>
-        <div class="progress-bar">
-            <div class="progress" style="width:<?= ($weight/$weightCapacity)*100 ?>%; background:<?= $statusColor ?>;"></div>
-        </div>
-        <div style="font-size:14px; margin-top:4px; color:<?= $statusColor ?>;">
-            <i class="fas <?= $statusIcon ?>"></i> <?= $weightStatus ?>
+
+<!-- Warning Popup Overlay -->
+<?php if ($showWarning): ?>
+<div class="warning-popup-overlay show" id="warningOverlay" onclick="closeWarning()"></div>
+<div class="warning-popup show" id="warningPopup">
+    <i class="fas fa-exclamation-triangle"></i>
+    <h3>⚠️ Warning!</h3>
+    <p>The bin is almost full!</p>
+    <button onclick="closeWarning()">Got it</button>
+</div>
+<?php endif; ?>
+
+<div class="cards-row">
+    <!-- Current Weight Card -->
+    <div class="weight-card">
+        <h3>Current Weight</h3>
+        <div class="weight-value"><?= number_format($currentWeight, 2) ?> kg</div>
+        <div class="weight-capacity">Capacity: <?= $weightCapacity ?> kg</div>
+        <div class="progress-bar-container">
+            <div class="progress-bar-fill" style="
+                width: <?= min(100, $weightPercentage) ?>%; 
+                background: <?= $weightPercentage >= 80 ? 'linear-gradient(90deg, #ff6b6b, #ee5a6f)' : 
+                              ($weightPercentage >= 60 ? 'linear-gradient(90deg, #ffd93d, #f6c23e)' : 
+                              'linear-gradient(90deg, #6fcf97, #27ae60)') ?>;
+            "></div>
         </div>
     </div>
-
-    <!-- Weight Graph -->
-    <div class="card graph-card">
-        <h3><i class="fas fa-chart-line"></i> Weight History</h3>
-        <canvas id="weightChart" style="height:180px;"></canvas>
+    
+    <!-- Total Compost Fertilizer Card -->
+    <div class="weight-card">
+        <h3>Total Compost Fertilizer</h3>
+        <div class="weight-value"><?= number_format($fertilizerOutput, 1) ?> kg</div>
+        <div class="weight-capacity">Current yield</div>
+        <div class="progress-bar-container">
+            <div class="progress-bar-fill" style="
+                width: <?= min(100, ($fertilizerOutput / ($weightCapacity * 0.5)) * 100) ?>%; 
+                background: linear-gradient(90deg, #ffd93d, #f6c23e);
+            "></div>
+        </div>
     </div>
 </div>
-<div class="kpi-row" style="gap:40px; margin:20px 0; font-size:18px; justify-content:center;">
-    <div class="kpi" style="display:flex; flex-direction:column; align-items:center;">
-        <i class="fas fa-calculator" style="font-size:24px; color:#22c55e;"></i>
-        <strong>Average</strong>
-        <span style="font-size:20px; font-weight:bold; color:#22c55e;"><?= $avgWeight ?> kg</span>
+
+<!-- Weight History Table -->
+<div class="history-section">
+    <h3>Weight History Table</h3>
+    
+    <?php if (!empty($historyData)): ?>
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th>Time and Date</th>
+                <th>Weight added</th>
+            </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($historyData as $index => $entry): ?>
+            <tr>
+                <td><?= htmlspecialchars($entry['datetime']) ?></td>
+                <td><?= number_format($entry['weight_added'], 2) ?> kg</td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+    <?php else: ?>
+    <div class="no-data">
+        <i class="fas fa-database" style="font-size: 48px; color: #ccc; margin-bottom: 10px; display: block;"></i>
+        No weight history data available
     </div>
-    <div class="kpi" style="display:flex; flex-direction:column; align-items:center;">
-        <i class="fas fa-arrow-up" style="font-size:24px; color:#ef4444;"></i>
-        <strong>Maximum</strong>
-        <span style="font-size:20px; font-weight:bold; color:#ef4444;"><?= $maxWeight ?> kg</span>
-    </div>
-    <div class="kpi" style="display:flex; flex-direction:column; align-items:center;">
-        <i class="fas fa-arrow-down" style="font-size:24px; color:#f59e0b;"></i>
-        <strong>Minimum</strong>
-        <span style="font-size:20px; font-weight:bold; color:#f59e0b;"><?= $minWeight ?> kg</span>
-    </div>
+    <?php endif; ?>
 </div>
-
-<h3>Weight History</h3>
-<table class="data-table">
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Weight (kg)</th>
-            <th>Status</th>
-            <th>Timestamp</th>
-        </tr>
-    </thead>
-    <tbody>
-    <?php foreach ($historyData as $h): 
-        $status = $h['Weight_Status'] ?? 'Normal';
-        $statusClass = strtolower($status);
-    ?>
-        <tr class="status-<?= $statusClass ?>">
-            <td><?= $h['Weight_Id'] ?></td>
-            <td><?= $h['Weight_Lvl'] ?></td>
-            <td><?= $status ?></td>
-            <td><?= $h['created_at'] ?></td>
-        </tr>
-    <?php endforeach; ?>
-    </tbody>
-</table>
-
+<div style="background: yellow; padding: 20px; margin: 20px;">
+    <h3>DEBUG VALUES:</h3>
+    <p>Current Weight: <?php echo $currentWeight; ?></p>
+    <p>Capacity: <?php echo $weightCapacity; ?></p>
+    <p>Fertilizer: <?php echo $fertilizerOutput; ?></p>
+    <p>Percentage: <?php echo $weightPercentage; ?>%</p>
+    <p>History Count: <?php echo count($historyData); ?></p>
+</div>
 </div>
 
 <script>
-const historyData = <?= json_encode(array_reverse($historyData)) ?>;
-const ctx = document.getElementById('weightChart').getContext('2d');
+function closeWarning() {
+    document.getElementById('warningPopup').classList.remove('show');
+    document.getElementById('warningOverlay').classList.remove('show');
+}
 
-new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: historyData.map(d => new Date(d.created_at).toLocaleTimeString()),
-        datasets: [{
-            label: 'Weight (kg)',
-            data: historyData.map(d => d.Weight_Lvl),
-            borderColor: '#22c55e',
-            backgroundColor: 'rgba(34,197,94,0.2)',
-            fill:true,
-            tension:0.4,
-            pointRadius:3
-        }]
-    },
-    options: {
-        responsive:true,
-        scales: { y:{ beginAtZero:true } },
-        plugins: { legend:{ display:false } }
-    }
+// Smooth progress bar animation on load
+window.addEventListener('load', () => {
+    document.querySelectorAll('.progress-bar-fill').forEach(bar => {
+        const width = bar.style.width;
+        bar.style.width = '0%';
+        setTimeout(() => {
+            bar.style.width = width;
+        }, 100);
+    });
 });
 </script>
 
