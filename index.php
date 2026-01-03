@@ -54,6 +54,46 @@ if ($temp >= 45 && $temp <= 70 && $ph >= 6.5 && $ph <= 8.0 && $humidity >= 40 &&
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<?php include_once 'notif_bell.php'; ?>
+
+<!-- ADD THIS FIREBASE AUTH SCRIPT -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+const firebaseConfig = {
+    apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
+    authDomain: "wattawaste-d3503.firebaseapp.com",
+    databaseURL: "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "wattawaste-d3503",
+    storageBucket: "wattawaste-d3503.firebasestorage.app",
+    messagingSenderId: "842761118644",
+    appId: "1:842761118644:web:ddef65fd892486f67f88e1",
+    measurementId: "G-33Z8K3NBY1"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+// Check authentication status
+onAuthStateChanged(auth, (user) => {
+    if (!user) {
+        // Not logged in - redirect to login
+        console.log('❌ No user found, redirecting to login...');
+        window.location.href = 'login.php';
+    } else {
+        // User is logged in
+        console.log('✅ User authenticated:', user.email || user.phoneNumber);
+        sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
+        sessionStorage.setItem('userId', user.uid);
+    }
+});
+
+// Make auth available globally for logout
+window.firebaseAuth = auth;
+</script>
+
+
 <?php  
 include_once 'notif_bell.php';
 ?>

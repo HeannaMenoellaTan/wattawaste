@@ -1,230 +1,633 @@
 <?php
-include('db.php');
 
-// Fetch latest 10 pH readings
-$query = "SELECT * FROM ph ORDER BY pH_Id DESC LIMIT 10";
-$result = $conn->query($query);
+/** 
+ * 1. ✅ Load Firebase
+ */
+require_once 'firebase_config.php';
+$database = getDatabase();
 
-$ph_data = [];
-$ph_labels = [];
+/**
+ * 2. 🔥 Fetch latest pH value from Firebase
+ */
+$firebasePH = $database->getReference("sensors/ph/latest/value")->getValue();
+$firebaseTimestamp = $database->getReference("sensors/ph/latest/timestamp")->getValue();
+$ph = $firebasePH ?? 7.0;
+$lastUpdate = $firebaseTimestamp ?? time();
 
-if ($result->num_rows > 0) {
-    while ($row = $result->fetch_assoc()) {
-        $ph_data[] = $row['pH_Value'];
-        $ph_labels[] = $row['created_at'] ?? 'N/A';
+/**
+ * 3. 📊 Fetch pH history from Firebase
+ */
+$historyRef = $database->getReference("sensors/ph/history");
+$historySnapshot = $historyRef->getSnapshot();
+
+$historyData = [];
+if ($historySnapshot->exists()) {
+    foreach ($historySnapshot->getValue() as $key => $item) {
+        $historyData[] = [
+            'timestamp' => $item['timestamp'] ?? time(),
+            'value' => $item['value'] ?? 7.0
+        ];
     }
 }
 
-// Latest pH
-$latest_ph = $ph_data[0] ?? 7.0;
+// Sort by timestamp (newest first) and limit to 50
+usort($historyData, function($a, $b) {
+    return $b['timestamp'] - $a['timestamp'];
+});
+$historyData = array_slice($historyData, 0, 50);
 
-// Determine pH status and colors
-if ($latest_ph < 6) {
-    $status = "Too Acidic";
-    $desc = "Add brown/lime materials";
-    $popup_color = "#e74c3c"; // red
-    $recommendation = "Add brown/lime materials";
-} elseif ($latest_ph > 8) {
-    $status = "Too Alkaline";
-    $desc = "Add green/acidic materials";
-    $popup_color = "#3498db"; // blue
-    $recommendation = "Add green/acidic materials";
+/**
+ * 4. ⚗️ pH Status Classification
+ */
+if ($ph < 6.0) {
+    $phStatus = 'Too Acidic';
+    $statusClass = 'acidic';
+    $statusDesc = 'Add brown materials or lime to increase pH.';
+    $recommendation = 'Add brown/lime materials to neutralize acidity';
+} elseif ($ph > 8.0) {
+    $phStatus = 'Too Alkaline';
+    $statusClass = 'alkaline';
+    $statusDesc = 'Add green materials or acidic materials to decrease pH.';
+    $recommendation = 'Add green/acidic materials to reduce alkalinity';
 } else {
-    $status = "Healthy";
-    $desc = "Compost is optimal";
-    $popup_color = "#f5c542"; // yellow
-    $recommendation = "Compost is healthy, monitor daily";
+    $phStatus = 'Optimal (Healthy)';
+    $statusClass = 'ok';
+    $statusDesc = 'Perfect pH range for composting. Keep monitoring.';
+    $recommendation = 'Compost is healthy, continue monitoring daily';
 }
 
-// Calculate KPI
-$avg_ph = round(array_sum($ph_data) / count($ph_data), 2);
-$max_ph = max($ph_data);
-$min_ph = min($ph_data);
-?>
+// Calculate statistics
+$avgPH = 0;
+$maxPH = 0;
+$minPH = 14;
+if (!empty($historyData)) {
+    $phs = array_column($historyData, 'value');
+    $avgPH = array_sum($phs) / count($phs);
+    $maxPH = max($phs);
+    $minPH = min($phs);
+}
 
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>pH Dashboard | WattAWaste Bin</title>
-<link rel="stylesheet" href="assets/css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>pH Monitor - WattAWaste</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Firebase Auth -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+const firebaseConfig = {
+    apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
+    authDomain: "wattawaste-d3503.firebaseapp.com",
+    databaseURL: "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "wattawaste-d3503",
+    storageBucket: "wattawaste-d3503.firebasestorage.app",
+    messagingSenderId: "842761118644",
+    appId: "1:842761118644:web:ddef65fd892486f67f88e1",
+    measurementId: "G-33Z8K3NBY1"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+onAuthStateChanged(auth, (user) => {
+    if (!user) {
+        console.log('❌ No user found, redirecting to login...');
+        window.location.href = 'login.php';
+    } else {
+        console.log('✅ User authenticated:', user.email || user.phoneNumber);
+        sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
+        sessionStorage.setItem('userId', user.uid);
+    }
+});
+
+window.firebaseAuth = auth;
+</script>
+
+<?php include_once 'notif_bell.php'; ?>
+
 <style>
-body { background: #f5f7f5; font-family: Arial, sans-serif; }
-.main { padding: 30px; }
-h2 { color:#2f5233; margin-bottom:20px; text-align:center; }
-
-.flex { 
-    display: flex; 
-    gap: 20px; 
-    flex-wrap: wrap; 
-    margin-bottom: 15px; 
-    align-items: flex-start; 
+:root {
+    --brand: #4CAF50;
+    --brand-dark: #2E7D32;
+    --ink: #333;
+    --panel: #fff;
+    --muted: #555;
+    --bg: #F9FAFB;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --acidic: #ef4444;
+    --alkaline: #3b82f6;
 }
 
-.flex .card { 
-    flex: none; 
-    width: 600px; 
+body {
+    background: var(--bg);
+    font-family: Poppins, system-ui, Segoe UI, Arial;
+    color: var(--ink);
+    min-height: 100vh;
+}
+
+.card {
+    border: none;
+    border-radius: 16px;
+    background: var(--panel);
+    box-shadow: 0 6px 16px rgba(2, 6, 23, .06);
+    transition: transform .2s, box-shadow .2s;
+}
+
+.card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 26px rgba(2, 6, 23, .12);
+}
+
+.page-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 24px;
+}
+
+.ph-hero {
+    background: linear-gradient(135deg, #f59e0b 0%, #eab308 100%);
+    border-radius: 20px;
+    padding: 40px;
+    color: white;
     text-align: center;
+    position: relative;
+    overflow: hidden;
 }
 
-#phChart { 
-    height: 150px !important;
+.ph-hero.acidic {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
 }
-.card { background:#fff; border-radius:15px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,0.15); text-align:center; }
 
-.card h3 { margin-bottom:10px; font-size:20px; }
+.ph-hero.alkaline {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
 
-.status-box { border-left: 8px solid <?= $popup_color ?>; }
+.ph-hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+    animation: pulse 3s ease-in-out infinite;
+}
 
-.status-box p { font-size:18px; margin:8px 0; }
+@keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.5; }
+    50% { transform: scale(1.1); opacity: 0.8; }
+}
 
-.kpi-container { display:flex; justify-content:center; gap:30px; margin-bottom:20px; }
-.kpi { flex:1; background:#fff; border-radius:12px; padding:15px; box-shadow:0 2px 5px rgba(0,0,0,0.1); text-align:center; }
-.kpi i { font-size:24px; margin-bottom:5px; display:block; color:#333; }
-.kpi span { display:block; font-size:18px; font-weight:bold; }
+.ph-display-large {
+    font-size: 96px;
+    font-weight: 900;
+    line-height: 1;
+    text-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    position: relative;
+    z-index: 1;
+}
 
-.history table { width:100%; border-collapse:collapse; }
-.history th, .history td { border-bottom:1px solid #ddd; padding:8px; text-align:left; font-size:15px; }
+.status-badge-large {
+    display: inline-block;
+    padding: 12px 30px;
+    border-radius: 50px;
+    font-weight: 700;
+    font-size: 18px;
+    background: rgba(255,255,255,0.9);
+    margin-top: 16px;
+    position: relative;
+    z-index: 1;
+}
 
-.legend { display:flex; justify-content:center; gap:20px; margin-top:10px; }
-.legend div { display:flex; align-items:center; gap:5px; font-weight:bold; }
-.legend span { display:inline-block; width:15px; height:15px; border-radius:3px; }
+.status-badge-large.ok { color: var(--ok); }
+.status-badge-large.acidic { color: var(--acidic); }
+.status-badge-large.alkaline { color: var(--alkaline); }
 
-#recommendationPopup {
+.stat-card {
+    text-align: center;
+    padding: 20px;
+}
+
+.stat-value {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--brand-dark);
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 8px;
+}
+
+.ph-scale {
+    width: 100%;
+    height: 40px;
+    background: linear-gradient(to right, #ff0000 0%, #ff7f00 14%, #ffff00 28%, #00ff00 42%, #0000ff 57%, #4b0082 71%, #9400d3 85%, #ff00ff 100%);
+    border-radius: 20px;
+    position: relative;
+    margin: 20px 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.ph-indicator {
+    position: absolute;
+    top: -10px;
+    width: 20px;
+    height: 60px;
+    background: white;
+    border: 3px solid #333;
+    border-radius: 10px;
+    transition: left 1s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.ph-scale-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    background: #f8fafc;
+    border-radius: 12px;
+    border-left: 4px solid #eab308;
+    transition: all 0.2s;
+}
+
+.history-item:hover {
+    background: #f1f5f9;
+    transform: translateX(4px);
+}
+
+.history-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #ca8a04;
+}
+
+.history-time {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.small-muted {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.alert-custom {
+    padding: 16px 20px;
+    border-radius: 12px;
+    border-left: 4px solid;
+    font-weight: 500;
+}
+
+.alert-custom.acidic {
+    background: #FEE2E2;
+    color: #7F1D1D;
+    border-color: #ef4444;
+}
+
+.alert-custom.alkaline {
+    background: #DBEAFE;
+    color: #1E3A8A;
+    border-color: #3b82f6;
+}
+
+.recommendation-popup {
     position: fixed;
-    top: 20px;
-    right: 20px;
-    background: <?= $popup_color ?>;
-    color: #fff;
+    top: 100px;
+    right: 30px;
+    background: white;
     padding: 20px;
     border-radius: 12px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    z-index: 9999;
-    display: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    z-index: 1000;
+    max-width: 350px;
+    border-left: 5px solid;
+    animation: slideIn 0.3s ease;
 }
-#recommendationPopup button {
-    background: rgba(255,255,255,0.8);
+
+@keyframes slideIn {
+    from { transform: translateX(400px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+.recommendation-popup.acidic { border-color: #ef4444; }
+.recommendation-popup.alkaline { border-color: #3b82f6; }
+.recommendation-popup.ok { border-color: #22c55e; }
+
+.close-popup {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
     border: none;
-    padding: 5px 10px;
-    border-radius:5px;
+    font-size: 20px;
     cursor: pointer;
-    margin-top:10px;
-}
-@media (max-width:768px) {
-    .flex { flex-direction:column; }
-    .kpi-container { flex-direction:column; }
+    color: var(--muted);
 }
 </style>
 </head>
 <body>
 
 <?php include 'sideabr.php'; ?>
-
 <div class="main">
-  <?php include 'topnav.php'; ?>
-<h2>🌿 pH Dashboard</h2>
+<?php include 'topnav.php'; ?>
 
-<!-- Current pH & Chart -->
-<div class="flex">
-    <div class="card status-box">
-        <h3>Status: <?= $status ?></h3>
-        <p>Latest pH: <strong><?= $latest_ph ?></strong></p>
-        <p><?= $desc ?></p>
+<div class="container-fluid px-4 py-4">
+    
+    <h1 class="page-title">⚗️ pH Level Monitoring</h1>
+
+    <!-- Hero pH Display -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-8">
+            <div class="ph-hero <?php echo $statusClass; ?>" id="phHero">
+                <div class="ph-display-large" id="phDisplay"><?php echo number_format($ph, 1); ?></div>
+                <div class="status-badge-large <?php echo $statusClass; ?>" id="statusBadge">
+                    <?php echo $phStatus; ?>
+                </div>
+                <div class="mt-3 small" style="opacity: 0.9; position: relative; z-index: 1;">
+                    <?php echo $statusDesc; ?>
+                </div>
+                <div class="mt-2 small" style="opacity: 0.8; position: relative; z-index: 1;">
+                    Last updated: <?php echo date('g:i A - M j, Y', $lastUpdate); ?>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card p-4 h-100">
+                <h6 class="text-center mb-3">pH Scale (0-14)</h6>
+                <div class="ph-scale">
+                    <div class="ph-indicator" id="phIndicator"></div>
+                </div>
+                <div class="ph-scale-labels">
+                    <span>0</span>
+                    <span>7</span>
+                    <span>14</span>
+                </div>
+                <div class="mt-3 text-center small-muted">
+                    <div><span style="color: #ef4444;">●</span> &lt;6.0 Too Acidic</div>
+                    <div><span style="color: #22c55e;">●</span> 6.0-8.0 Optimal</div>
+                    <div><span style="color: #3b82f6;">●</span> &gt;8.0 Too Alkaline</div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div class="card">
-        <h3>pH Trend</h3>
-        <canvas id="phChart" style="height:150px;"></canvas>
+    <?php if ($ph < 6.0 || $ph > 8.0): ?>
+    <div class="alert-custom <?php echo $statusClass; ?> mb-4">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <strong>Action Required:</strong> <?php echo $recommendation; ?>
     </div>
+    <?php endif; ?>
+
+    <!-- Statistics Cards -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <i class="fas fa-vial text-danger mb-2" style="font-size: 32px;"></i>
+                <div class="stat-value"><?php echo number_format($maxPH, 2); ?></div>
+                <div class="stat-label">Maximum pH</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <i class="fas fa-chart-line text-success mb-2" style="font-size: 32px;"></i>
+                <div class="stat-value"><?php echo number_format($avgPH, 2); ?></div>
+                <div class="stat-label">Average pH</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <i class="fas fa-flask text-info mb-2" style="font-size: 32px;"></i>
+                <div class="stat-value"><?php echo number_format($minPH, 2); ?></div>
+                <div class="stat-label">Minimum pH</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- pH Trend Chart -->
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <div class="card p-4">
+                <h5 class="mb-3">
+                    <i class="fas fa-chart-area text-primary me-2"></i>
+                    pH Level Trend (Last <?php echo count($historyData); ?> Readings)
+                </h5>
+                <canvas id="phChart" style="max-height: 350px;"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Readings -->
+    <div class="row g-4">
+        <div class="col-12">
+            <div class="card p-4">
+                <h5 class="mb-3">
+                    <i class="fas fa-history text-info me-2"></i>
+                    Recent pH Readings
+                </h5>
+                <div id="historyContainer" style="max-height: 500px; overflow-y: auto;">
+                    <?php if (empty($historyData)): ?>
+                        <p class="text-muted text-center py-4">No history data available</p>
+                    <?php else: ?>
+                        <?php foreach (array_slice($historyData, 0, 20) as $record): ?>
+                        <div class="history-item">
+                            <div>
+                                <div class="history-value"><?php echo number_format($record['value'], 2); ?></div>
+                                <div class="history-time"><?php echo date('g:i A - M j, Y', $record['timestamp']); ?></div>
+                            </div>
+                            <div>
+                                <?php
+                                $val = $record['value'];
+                                if ($val < 6.0) {
+                                    echo '<span class="badge bg-danger">Too Acidic</span>';
+                                } elseif ($val > 8.0) {
+                                    echo '<span class="badge bg-primary">Too Alkaline</span>';
+                                } else {
+                                    echo '<span class="badge bg-success">Optimal</span>';
+                                }
+                                ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
 
-<!-- KPI Cards -->
-<div class="kpi-container">
-    <div class="kpi" style="color:#6fc276;">
-        <i class="fas fa-calculator"></i>
-        <span>Avg</span>
-        <span><?= $avg_ph ?></span>
-    </div>
-    <div class="kpi" style="color:#ef4444;">
-        <i class="fas fa-arrow-up"></i>
-        <span>Max</span>
-        <span><?= $max_ph ?></span>
-    </div>
-    <div class="kpi" style="color:#f59e0b;">
-        <i class="fas fa-arrow-down"></i>
-        <span>Min</span>
-        <span><?= $min_ph ?></span>
-    </div>
+<!-- Recommendation Popup -->
+<?php if ($ph < 6.0 || $ph > 8.0): ?>
+<div class="recommendation-popup <?php echo $statusClass; ?>" id="recommendationPopup">
+    <button class="close-popup" onclick="closePopup()">×</button>
+    <h6><i class="fas fa-lightbulb me-2"></i>Recommendation</h6>
+    <p class="mb-0 mt-2"><?php echo $recommendation; ?></p>
 </div>
+<?php endif; ?>
 
-<!-- History Table -->
-<div class="card history">
-    <h3>pH History</h3>
-    <table>
-        <thead>
-            <tr><th>Date & Time</th><th>pH Value</th></tr>
-        </thead>
-        <tbody>
-            <?php foreach(array_reverse($ph_labels) as $i => $label): 
-                $value = $ph_data[$i];
-                $row_color = ($value < 6) ? "#e74c3c" : (($value > 8) ? "#3498db" : "#f5c542");
-            ?>
-                <tr style="background:<?= $row_color ?>22"><!-- light color -->
-                    <td><?= $label ?></td>
-                    <td><?= $value ?></td>
-                </tr>
-            <?php endforeach; ?>
-        </tbody>
-    </table>
-
-    <!-- Legend -->
-    <div class="legend">
-        <div><span style="background:#e74c3c;"></span> Too Acidic</div>
-        <div><span style="background:#f5c542;"></span> Healthy</div>
-        <div><span style="background:#3498db;"></span> Too Alkaline</div>
-    </div>
-</div>
-
-<div id="recommendationPopup">
-    <strong>Recommendation:</strong>
-    <p><?= $recommendation ?></p>
-    <button onclick="document.getElementById('recommendationPopup').style.display='none'">Close</button>
 </div>
 
 <script>
-const phData = <?= json_encode(array_reverse($ph_data)) ?>;
-const phLabels = <?= json_encode(array_reverse($ph_labels)) ?>;
+// Update pH scale indicator
+function updatePHIndicator(ph) {
+    const indicator = document.getElementById('phIndicator');
+    const percentage = Math.min(Math.max((ph / 14) * 100, 0), 100);
+    indicator.style.left = `calc(${percentage}% - 10px)`;
+}
 
-// Chart.js
-new Chart(document.getElementById('phChart'), {
+// Initialize with PHP value
+updatePHIndicator(<?php echo $ph; ?>);
+
+// Close popup
+function closePopup() {
+    const popup = document.getElementById('recommendationPopup');
+    if (popup) popup.style.display = 'none';
+}
+
+// Prepare chart data
+const historyData = <?php echo json_encode($historyData); ?>;
+const labels = historyData.map(item => {
+    const date = new Date(item.timestamp * 1000);
+    return date.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+});
+const phs = historyData.map(item => item.value);
+
+// Create pH chart
+const ctx = document.getElementById('phChart').getContext('2d');
+const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+gradient.addColorStop(0, 'rgba(234, 179, 8, 0.3)');
+gradient.addColorStop(1, 'rgba(245, 158, 11, 0.05)');
+
+const phChart = new Chart(ctx, {
     type: 'line',
     data: {
-        labels: phLabels,
-        datasets:[{
-            label:'pH Value',
-            data: phData,
-            borderColor:'#4CAF50',
-            backgroundColor:'rgba(76, 175, 80, 0.2)',
-            tension:0.4,
-            fill:true,
-            pointRadius:4
+        labels: labels,
+        datasets: [{
+            label: 'pH Level',
+            data: phs,
+            borderColor: '#eab308',
+            backgroundColor: gradient,
+            borderWidth: 3,
+            tension: 0.4,
+            fill: true,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            pointBackgroundColor: '#eab308',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2
         }]
     },
     options: {
-        responsive:true,
-        maintainAspectRatio:false,
-        scales:{ y:{ suggestedMin:4, suggestedMax:9 } }
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: 'rgba(0,0,0,0.8)',
+                padding: 12,
+                titleFont: { size: 14 },
+                bodyFont: { size: 13 },
+                callbacks: {
+                    label: function(context) {
+                        return 'pH: ' + context.parsed.y.toFixed(2);
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: false,
+                min: 4,
+                max: 10,
+                ticks: {
+                    callback: function(value) {
+                        return value.toFixed(1);
+                    }
+                },
+                grid: {
+                    color: 'rgba(0,0,0,0.05)'
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                }
+            }
+        }
     }
 });
 
-// Show popup if pH is out of healthy range
-const latestPH = <?= $latest_ph ?>;
-document.getElementById('recommendationPopup').style.display = 'block';
+// Real-time updates
+async function fetchLatestPH() {
+    try {
+        const res = await fetch('api/get_latest.php', { cache: 'no-store' });
+        const { latest } = await res.json();
+        
+        if (latest && latest.ph !== undefined) {
+            const ph = parseFloat(latest.ph);
+            document.getElementById('phDisplay').textContent = ph.toFixed(1);
+            updatePHIndicator(ph);
+            
+            // Update hero background and badge
+            const hero = document.getElementById('phHero');
+            const badge = document.getElementById('statusBadge');
+            
+            hero.classList.remove('acidic', 'alkaline', 'ok');
+            badge.classList.remove('acidic', 'alkaline', 'ok');
+            
+            if (ph < 6.0) {
+                hero.classList.add('acidic');
+                badge.classList.add('acidic');
+                badge.textContent = 'Too Acidic';
+            } else if (ph > 8.0) {
+                hero.classList.add('alkaline');
+                badge.classList.add('alkaline');
+                badge.textContent = 'Too Alkaline';
+            } else {
+                hero.classList.add('ok');
+                badge.classList.add('ok');
+                badge.textContent = 'Optimal (Healthy)';
+            }
+        }
+    } catch (e) {
+        console.error('Error fetching pH:', e);
+    }
+}
+
+// Update every 3 seconds
+setInterval(fetchLatestPH, 3000);
 </script>
 
-</div>
 </body>
 </html>

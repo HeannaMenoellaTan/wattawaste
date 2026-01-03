@@ -1,27 +1,36 @@
 <?php
-header("Content-Type: application/json");
-$conn = new mysqli("127.0.0.1", "root", "", "wattawaste_system");
+require_once '../firebase_config.php';
+header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
 
-if ($conn->connect_error) {
-    echo json_encode(["error" => "Database connection failed"]);
-    exit();
+try {
+    $database = getDatabase();
+    
+    // Get latest sensor values from Firebase
+    $temperature = $database->getReference('sensors/temperature/latest/value')->getValue() ?? 0;
+    $humidity = $database->getReference('sensors/humidity/latest/value')->getValue() ?? 0;
+    $gas = $database->getReference('sensors/gas/latest/value')->getValue() ?? 0;
+    $ph = $database->getReference('sensors/ph/latest/value')->getValue() ?? 0;
+    
+    $response = [
+        'success' => true,
+        'latest' => [
+            'temperature' => $temperature,
+            'humidity' => $humidity,
+            'gas' => $gas,
+            'ph' => $ph
+        ],
+        'timestamp' => time()
+    ];
+    
+    echo json_encode($response);
+    
+} catch (Exception $e) {
+    error_log("Get Latest Error: " . $e->getMessage());
+    echo json_encode([
+        'success' => false,
+        'message' => 'Error retrieving latest sensor data',
+        'error' => $e->getMessage()
+    ]);
 }
-
-// Get latest temperature, humidity, gas, ph
-$temp = $conn->query("SELECT Temp_Ave FROM temperatures ORDER BY Temp_Id DESC LIMIT 1")->fetch_assoc()['Temp_Ave'] ?? 0;
-$humidity = $conn->query("SELECT Humid_Lvl FROM humidity ORDER BY Humid_Id DESC LIMIT 1")->fetch_assoc()['Humid_Lvl'] ?? 0;
-$gas = $conn->query("SELECT Gas_Lvl FROM gas ORDER BY Gas_Id DESC LIMIT 1")->fetch_assoc()['Gas_Lvl'] ?? 0;
-$ph = $conn->query("SELECT pH_Value FROM ph ORDER BY pH_Id DESC LIMIT 1")->fetch_assoc()['pH_Value'] ?? 0;
-
-echo json_encode([
-    "latest" => [
-        "temperature" => $temp,
-        "humidity"    => $humidity,
-        "gas"         => $gas,
-        "ph"          => $ph
-    ],
-    "mixer" => 0
-]);
-
-$conn->close();
 ?>

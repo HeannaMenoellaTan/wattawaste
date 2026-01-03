@@ -1,40 +1,13 @@
-<?php echo "FILE VERSION: 2024-12-27 v5"; ?>
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-echo "<!-- DEBUG START -->";
-echo "<!-- Testing Firebase Connection -->";
-
 require_once 'firebase_config.php';
 
 // ==== Get Latest Weight Data from Firebase ====
 try {
     $database = getDatabase();
-    echo "<!-- Database connection successful -->";
     
     // Get latest weight
     $latestRef = $database->getReference('sensors/weight/latest');
-    echo "<!-- Reference created: sensors/weight/latest -->";
-    
     $latestSnapshot = $latestRef->getSnapshot();
-    echo "<!-- Snapshot retrieved -->";
-    echo "<!-- Snapshot exists: " . ($latestSnapshot->exists() ? 'YES' : 'NO') . " -->";
-    
-    if ($latestSnapshot->exists()) {
-        $latestData = $latestSnapshot->getValue();
-        echo "<!-- Latest data: " . print_r($latestData, true) . " -->";
-        
-        $currentWeight = $latestData['value'] ?? 0;
-        $weightCapacity = $latestData['capacity'] ?? 25;
-        
-        echo "<!-- Current Weight: $currentWeight -->";
-        echo "<!-- Capacity: $weightCapacity -->";
-    } else {
-        echo "<!-- NO DATA FOUND AT sensors/weight/latest -->";
-        $currentWeight = 0;
-        $weightCapacity = 25;
-    }
     
     if ($latestSnapshot->exists()) {
         $latestData = $latestSnapshot->getValue();
@@ -406,14 +379,7 @@ body {
     </div>
     <?php endif; ?>
 </div>
-<div style="background: yellow; padding: 20px; margin: 20px;">
-    <h3>DEBUG VALUES:</h3>
-    <p>Current Weight: <?php echo $currentWeight; ?></p>
-    <p>Capacity: <?php echo $weightCapacity; ?></p>
-    <p>Fertilizer: <?php echo $fertilizerOutput; ?></p>
-    <p>Percentage: <?php echo $weightPercentage; ?>%</p>
-    <p>History Count: <?php echo count($historyData); ?></p>
-</div>
+
 </div>
 
 <script>
@@ -436,3 +402,4 @@ window.addEventListener('load', () => {
 
 </body>
 </html>
+

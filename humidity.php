@@ -1,400 +1,551 @@
 <?php
-// humidity.php
-// Elder-friendly + language switcher (English <-> Filipino)
-// Replace your existing humidity.php with this file.
 
-if (!isset($conn) || !($conn instanceof mysqli)) {
-    $conn = new mysqli("localhost", "root", "", "wattawaste_system");
-    if ($conn->connect_error) {
-        // Fail early but show friendly message for debugging
-        die("Connection failed: " . htmlspecialchars($conn->connect_error, ENT_QUOTES, 'UTF-8'));
+/** 
+ * 1. ✅ Load Firebase
+ */
+require_once 'firebase_config.php';
+$database = getDatabase();
+
+/**
+ * 2. 🔥 Fetch latest humidity value from Firebase
+ */
+$firebaseHumidity = $database->getReference("sensors/humidity/latest/value")->getValue();
+$firebaseTimestamp = $database->getReference("sensors/humidity/latest/timestamp")->getValue();
+$humidity = $firebaseHumidity ?? 0;
+$lastUpdate = $firebaseTimestamp ?? time();
+
+/**
+ * 3. 📊 Fetch humidity history from Firebase
+ */
+$historyRef = $database->getReference("sensors/humidity/history");
+$historySnapshot = $historyRef->getSnapshot();
+
+$historyData = [];
+if ($historySnapshot->exists()) {
+    foreach ($historySnapshot->getValue() as $key => $item) {
+        $historyData[] = [
+            'timestamp' => $item['timestamp'] ?? time(),
+            'value' => $item['value'] ?? 0
+        ];
     }
 }
 
-// Helper: safe escape
-function e($v) {
-    return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8');
-}
+// Sort by timestamp (newest first) and limit to 50
+usort($historyData, function($a, $b) {
+    return $b['timestamp'] - $a['timestamp'];
+});
+$historyData = array_slice($historyData, 0, 50);
 
-// Fetch latest humidity row (defensive)
-$latestHumidityRow = null;
-if ($q = $conn->query("SELECT * FROM humidity ORDER BY Humid_Id DESC LIMIT 1")) {
-    $latestHumidityRow = $q->fetch_assoc();
-}
-
-// Normalize values with fallbacks
-$currentHumidity = $latestHumidityRow && isset($latestHumidityRow['Humid_Lvl'])
-    ? floatval($latestHumidityRow['Humid_Lvl']) : 0.0;
-
-$capacity = $latestHumidityRow && isset($latestHumidityRow['Humid_Cap'])
-    ? floatval($latestHumidityRow['Humid_Cap']) : 100.0;
-
-// created_at fallback to now if not present
-$created_at = $latestHumidityRow && !empty($latestHumidityRow['created_at'])
-    ? $latestHumidityRow['created_at'] : date("Y-m-d H:i:s");
-
-// server-side status (fallback)
-if ($currentHumidity >= 70) {
-    $server_status_key = "critical";
-} elseif ($currentHumidity > 60) {
-    $server_status_key = "optimal";
+/**
+ * 4. 💧 Humidity Status Classification
+ */
+if ($humidity >= 70) {
+    $humidityStatus = 'Critical (Too Wet)';
+    $statusClass = 'crit';
+    $statusDesc = 'Humidity is too high. Risk of anaerobic conditions.';
+} elseif ($humidity >= 61) {
+    $humidityStatus = 'Optimal';
+    $statusClass = 'ok';
+    $statusDesc = 'Perfect moisture level for composting.';
 } else {
-    $server_status_key = "warning";
+    $humidityStatus = 'Warning (Too Dry)';
+    $statusClass = 'warn';
+    $statusDesc = 'Humidity is below optimal. May slow decomposition.';
 }
 
-// Fetch recent messages for popup (last 8) - defensive
-$messages = [];
-if ($messagesRes = $conn->query("SELECT * FROM reports ORDER BY date_created DESC LIMIT 8")) {
-    while ($m = $messagesRes->fetch_assoc()) {
-        $messages[] = $m;
-    }
-}
-
-// For history table (latest 10 entries)
-$historyRows = [];
-if ($res = $conn->query("SELECT * FROM humidity ORDER BY Humid_Id DESC LIMIT 10")) {
-    while ($r = $res->fetch_assoc()) {
-        $historyRows[] = $r;
-    }
+// Calculate statistics
+$avgHumidity = 0;
+$maxHumidity = 0;
+$minHumidity = 100;
+if (!empty($historyData)) {
+    $humidities = array_column($historyData, 'value');
+    $avgHumidity = array_sum($humidities) / count($humidities);
+    $maxHumidity = max($humidities);
+    $minHumidity = min($humidities);
 }
 
 ?>
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<title>WattAWaste — Humidity</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Humidity Monitor - WattAWaste</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-<?php include 'sideabr.php'; ?> <!-- ✅ Make sure file name is correct -->
- <?php include 'notif_bell.php'; ?>
-<!-- FontAwesome -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Firebase Auth -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+const firebaseConfig = {
+    apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
+    authDomain: "wattawaste-d3503.firebaseapp.com",
+    databaseURL: "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "wattawaste-d3503",
+    storageBucket: "wattawaste-d3503.firebasestorage.app",
+    messagingSenderId: "842761118644",
+    appId: "1:842761118644:web:ddef65fd892486f67f88e1",
+    measurementId: "G-33Z8K3NBY1"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+onAuthStateChanged(auth, (user) => {
+    if (!user) {
+        console.log('❌ No user found, redirecting to login...');
+        window.location.href = 'login.php';
+    } else {
+        console.log('✅ User authenticated:', user.email || user.phoneNumber);
+        sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
+        sessionStorage.setItem('userId', user.uid);
+    }
+});
+
+window.firebaseAuth = auth;
+</script>
+
+<?php include_once 'notif_bell.php'; ?>
+
 <style>
-/* ---------- Compact elder-friendly styles ---------- */
-:root{--bg:#f6fbf7;--muted:#64748b;--panel:#fff}
-body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin:0;background:var(--bg);color:#0f172a}
+:root {
+    --brand: #4CAF50;
+    --brand-dark: #2E7D32;
+    --ink: #333;
+    --panel: #fff;
+    --muted: #555;
+    --bg: #F9FAFB;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --crit: #ef4444;
+}
 
-.header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
-.header h1{font-size:1.15rem;margin:0}
-.lang-select{display:flex;gap:10px;align-items:center}
-.lang-select select{padding:8px 10px;border-radius:8px;border:1px solid #e5e7eb;font-size:14px}
+body {
+    background: var(--bg);
+    font-family: Poppins, system-ui, Segoe UI, Arial;
+    color: var(--ink);
+    min-height: 100vh;
+}
 
-/* Banner */
-.status-banner{padding:18px;border-radius:12px;font-size:20px;font-weight:800;text-align:center;color:#000;margin-bottom:22px;box-shadow:0 6px 24px rgba(2,6,23,0.04)}
+.card {
+    border: none;
+    border-radius: 16px;
+    background: var(--panel);
+    box-shadow: 0 6px 16px rgba(2, 6, 23, .06);
+    transition: transform .2s, box-shadow .2s;
+}
 
-/* Card / gauge */
-.humidity-card{background:var(--panel);padding:20px;border-radius:16px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,0.06);max-width:980px;margin:0 auto 18px}
-.humidity-card h3{font-size:22px;margin-bottom:8px;font-weight:800}
-.humidity-big{font-size:72px;font-weight:900;margin-top:6px;color:#0b1220}
-.humidity-sub{font-size:16px;margin-top:8px;color:#374151}
+.card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 26px rgba(2, 6, 23, .12);
+}
 
-/* Gauge */
-.gauge{width:240px;height:120px;margin:6px auto 8px auto;overflow:hidden}
-.gauge-body{width:100%;height:240px;background:#e6e9ea;border-radius:100% 100% 0 0;position:relative}
-.gauge-fill{width:100%;height:100%;background:green;transform-origin:center bottom;transform:rotate(0deg);transition:transform .5s ease, background .35s ease;border-radius:100% 100% 0 0}
-.gauge-cover{width:160px;height:80px;background:white;position:absolute;top:70px;left:50%;transform:translateX(-50%);border-radius:100px 100px 0 0;font-size:22px;font-weight:800;line-height:80px;color:#0b1220}
+.page-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 24px;
+}
 
-.humidity-status{margin-top:12px;font-size:22px;font-weight:800}
+.humidity-hero {
+    background: linear-gradient(135deg, #00b4d8 0%, #48cae4 100%);
+    border-radius: 20px;
+    padding: 40px;
+    color: white;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
 
-.templegend{margin:12px auto;max-width:980px;background:var(--panel);padding:10px;border-radius:10px;border:1px solid #eef2f2;display:flex;gap:12px;justify-content:center}
-.history{max-width:980px;margin:18px auto 60px auto}
-.data-table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:8px;overflow:hidden;box-shadow:0 6px 20px rgba(2,6,23,0.04)}
-.data-table th{background:#24303a;color:#fff;padding:12px;text-align:left;font-weight:700}
-.data-table td{padding:12px;border-bottom:1px solid #f1f5f9;color:#0f172a}
-.data-table tr:hover td{background:#fbfdfc}
+.humidity-hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+    animation: pulse 3s ease-in-out infinite;
+}
 
-@media(max-width:1000px){
-  .gauge{width:70%;height:auto}
-  .humidity-big{font-size:48px}
+@keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.5; }
+    50% { transform: scale(1.1); opacity: 0.8; }
+}
+
+.humidity-display-large {
+    font-size: 96px;
+    font-weight: 900;
+    line-height: 1;
+    text-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    position: relative;
+    z-index: 1;
+}
+
+.status-badge-large {
+    display: inline-block;
+    padding: 12px 30px;
+    border-radius: 50px;
+    font-weight: 700;
+    font-size: 18px;
+    background: rgba(255,255,255,0.9);
+    margin-top: 16px;
+    position: relative;
+    z-index: 1;
+}
+
+.status-badge-large.ok { color: var(--ok); }
+.status-badge-large.warn { color: var(--warn); }
+.status-badge-large.crit { color: var(--crit); }
+
+.stat-card {
+    text-align: center;
+    padding: 20px;
+}
+
+.stat-value {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--brand-dark);
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 8px;
+}
+
+.droplet-visual {
+    width: 100px;
+    height: 120px;
+    background: linear-gradient(to bottom, #0088ff 0%, #00b4d8 50%, #48cae4 100%);
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+    position: relative;
+    margin: 0 auto;
+    box-shadow: 0 8px 20px rgba(0,180,216,0.3);
+}
+
+.droplet-indicator {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(10px);
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+    transition: height 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.history-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    background: #f8fafc;
+    border-radius: 12px;
+    border-left: 4px solid #00b4d8;
+    transition: all 0.2s;
+}
+
+.history-item:hover {
+    background: #f1f5f9;
+    transform: translateX(4px);
+}
+
+.history-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #00688b;
+}
+
+.history-time {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.small-muted {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.alert-custom {
+    padding: 16px 20px;
+    border-radius: 12px;
+    border-left: 4px solid;
+    font-weight: 500;
+}
+
+.alert-custom.warning {
+    background: #FFF8E1;
+    color: #7A5A00;
+    border-color: #f59e0b;
+}
+
+.alert-custom.critical {
+    background: #FFE5E5;
+    color: #7F1D1D;
+    border-color: #ef4444;
 }
 </style>
 </head>
 <body>
 
+<?php include 'sideabr.php'; ?>
 <div class="main">
- <?php include 'topnav.php'; ?>
-  <!-- big status banner -->
-  <div id="statusBanner" class="status-banner" role="status" aria-live="polite"></div>
+<?php include 'topnav.php'; ?>
 
-  <!-- humidity card -->
-  <div class="humidity-card" role="region" aria-label="Humidity meter">
-    <h3 id="labelHumidityLevel">Humidity Level</h3>
+<div class="container-fluid px-4 py-4">
+    
+    <h1 class="page-title">💧 Humidity Monitoring</h1>
 
-    <div class="gauge" aria-hidden="true">
-      <div class="gauge-body">
-        <div class="gauge-fill" id="humidityFill" aria-hidden="true"></div>
-        <div class="gauge-cover" id="humidityValue"><?= e(number_format($currentHumidity,1)) ?>%</div>
-      </div>
+    <!-- Hero Humidity Display -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-8">
+            <div class="humidity-hero">
+                <div class="humidity-display-large" id="humidityDisplay"><?php echo number_format($humidity, 1); ?>%</div>
+                <div class="status-badge-large <?php echo $statusClass; ?>" id="statusBadge">
+                    <?php echo $humidityStatus; ?>
+                </div>
+                <div class="mt-3 small" style="opacity: 0.9; position: relative; z-index: 1;">
+                    <?php echo $statusDesc; ?>
+                </div>
+                <div class="mt-2 small" style="opacity: 0.8; position: relative; z-index: 1;">
+                    Last updated: <?php echo date('g:i A - M j, Y', $lastUpdate); ?>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card p-4 h-100 d-flex align-items-center justify-content-center">
+                <h6 class="text-center mb-3">Moisture Level</h6>
+                <div class="droplet-visual">
+                    <div class="droplet-indicator" id="dropletIndicator"></div>
+                </div>
+                <div class="mt-3 text-center small-muted">
+                    <div><span style="color: #ef4444;">●</span> ≥70% Critical</div>
+                    <div><span style="color: #10b981;">●</span> 61-69% Optimal</div>
+                    <div><span style="color: #f59e0b;">●</span> ≤60% Warning</div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div class="humidity-big" id="bigHumidity"><?= e(number_format($currentHumidity,1)) ?>%</div>
-    <div class="humidity-sub" id="subText"><?= e("Recorded at: {$created_at}") ?></div>
-    <div id="humidityStatus" class="humidity-status" aria-live="polite"></div>
-  </div>
+    <?php if ($humidity < 40 || $humidity >= 70): ?>
+    <div class="alert-custom <?php echo $humidity >= 70 ? 'critical' : 'warning'; ?> mb-4">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <strong><?php echo $humidity >= 70 ? 'Critical' : 'Warning'; ?>:</strong> 
+        Humidity is <?php echo $humidity >= 70 ? 'too high. Risk of anaerobic conditions and odor.' : 'too low. May slow decomposition process.'; ?>
+    </div>
+    <?php endif; ?>
 
-  <!-- legend -->
-  <div class="templegend" id="legend">
-    <div style="width:100%;text-align:center;font-weight:700">🟢 Optimal (61% - 69%) &nbsp;&nbsp; 🟡 Warning (&lt;=60%) &nbsp;&nbsp; 🔴 Critical (≥70%)</div>
-  </div>
+    <!-- Statistics Cards -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <i class="fas fa-tint text-danger mb-2" style="font-size: 32px;"></i>
+                <div class="stat-value"><?php echo number_format($maxHumidity, 1); ?>%</div>
+                <div class="stat-label">Maximum Humidity</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <i class="fas fa-chart-line text-success mb-2" style="font-size: 32px;"></i>
+                <div class="stat-value"><?php echo number_format($avgHumidity, 1); ?>%</div>
+                <div class="stat-label">Average Humidity</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stat-card">
+                <i class="fas fa-droplet text-info mb-2" style="font-size: 32px;"></i>
+                <div class="stat-value"><?php echo number_format($minHumidity, 1); ?>%</div>
+                <div class="stat-label">Minimum Humidity</div>
+            </div>
+        </div>
+    </div>
 
-  <!-- history -->
-  <div class="history">
-    <h3 id="historyTitle">Humidity History</h3>
-    <table class="data-table" aria-live="polite">
-      <thead>
-        <tr>
-          <th id="thId">ID</th>
-          <th id="thHum">Humidity</th>
-          <th id="thStatus">Status</th>
-          <th id="thRecorded">Recorded At</th>
-        </tr>
-      </thead>
-      <tbody id="historyBody">
-        <?php if (count($historyRows) > 0): ?>
-          <?php foreach($historyRows as $r):
-            $hval = isset($r['Humid_Lvl']) ? floatval($r['Humid_Lvl']) : 0.0;
-            if ($hval >= 70) { $c = "critical"; $st = "Critical"; $col = "#991b1b"; }
-            elseif ($hval > 60) { $c = "optimal"; $st = "Optimal"; $col = "#166534"; }
-            else { $c = "warning"; $st = "Warning"; $col = "#92400e"; }
-          ?>
-          <tr>
-            <td><?= e($r['Humid_Id']) ?></td>
-            <td><?= e(number_format($hval,1)) ?>%</td>
-            <td><span style="font-weight:700;color:<?= e($col) ?>;"><?= e($st) ?></span></td>
-            <td><?= e($r['created_at'] ?? '') ?></td>
-          </tr>
-          <?php endforeach; ?>
-        <?php else: ?>
-          <tr><td colspan="4" style="text-align:center;color:<?= e('--' ) ?>;padding:18px; color:var(--muted)">No history yet.</td></tr>
-        <?php endif; ?>
-      </tbody>
-    </table>
-  </div>
+    <!-- Humidity Trend Chart -->
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <div class="card p-4">
+                <h5 class="mb-3">
+                    <i class="fas fa-chart-area text-primary me-2"></i>
+                    Humidity Trend (Last <?php echo count($historyData); ?> Readings)
+                </h5>
+                <canvas id="humidityChart" style="max-height: 350px;"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Readings -->
+    <div class="row g-4">
+        <div class="col-12">
+            <div class="card p-4">
+                <h5 class="mb-3">
+                    <i class="fas fa-history text-info me-2"></i>
+                    Recent Humidity Readings
+                </h5>
+                <div id="historyContainer" style="max-height: 500px; overflow-y: auto;">
+                    <?php if (empty($historyData)): ?>
+                        <p class="text-muted text-center py-4">No history data available</p>
+                    <?php else: ?>
+                        <?php foreach (array_slice($historyData, 0, 20) as $record): ?>
+                        <div class="history-item">
+                            <div>
+                                <div class="history-value"><?php echo number_format($record['value'], 1); ?>%</div>
+                                <div class="history-time"><?php echo date('g:i A - M j, Y', $record['timestamp']); ?></div>
+                            </div>
+                            <div>
+                                <?php
+                                $val = $record['value'];
+                                if ($val >= 70) {
+                                    echo '<span class="badge bg-danger">Critical</span>';
+                                } elseif ($val >= 61) {
+                                    echo '<span class="badge bg-success">Optimal</span>';
+                                } else {
+                                    echo '<span class="badge bg-warning">Warning</span>';
+                                }
+                                ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
 </div>
 
-
 <script>
-/* -------------------------
-   LANGUAGE STRINGS (client-side)
-   ------------------------- */
-const STRINGS = {
-  en: {
-    pageTitle: "🌱 WattAWaste — Humidity",
-    labelHumidityLevel: "Humidity Level",
-    recordedAt: "Recorded at:",
-    historyTitle: "Humidity History",
-    thId: "ID",
-    thHum: "Humidity",
-    thStatus: "Status",
-    thRecorded: "Recorded At",
-    status_optimal: "🟢 OPTIMAL — OKAY",
-    status_warning: "🟡 WARNING — MODERATELY HIGH",
-    status_critical: "🔴 CRITICAL — TOO WET",
-    legend: "🟢 Optimal (61% - 69%) &nbsp;&nbsp; 🟡 Warning (<=60%) &nbsp;&nbsp; 🔴 Critical (≥70%)"
-  },
-  ph: {
-    pageTitle: "🌱 WattAWaste — Halumigmig",
-    labelHumidityLevel: "Antas ng Halumigmig",
-    recordedAt: "Naitala noong:",
-    historyTitle: "Kasaysayan ng Halumigmig",
-    thId: "ID",
-    thHum: "Halumigmig",
-    thStatus: "Kalagayan",
-    thRecorded: "Naitala",
-    status_optimal: "🟢 OKAY — NASA TAMANG ANTAS",
-    status_warning: "🟡 BABALA — MEDYO MATAAS",
-    status_critical: "🔴 DELIKADO — SOBRANG BASA",
-    legend: "🟢 Optimal (61% - 69%) &nbsp;&nbsp; 🟡 Babala (<=60%) &nbsp;&nbsp; 🔴 Delikado (≥70%)"
-  }
-};
-
-/* apply language (UI) */
-function applyLanguage(lang) {
-  const s = STRINGS[lang] || STRINGS.en;
-  document.getElementById('pageTitle').textContent = s.pageTitle;
-  document.getElementById('labelHumidityLevel').textContent = s.labelHumidityLevel;
-  // Update recorded text label while preserving timestamp value (parse existing timestamp)
-  const sub = document.getElementById('subText');
-  let ts = '';
-  if (sub) {
-    const match = sub.textContent.match(/(\d{4}-\d{2}-\d{2}.*$)/); // naive ISO-ish match
-    ts = match ? match[1] : sub.textContent.replace(/^[^\d]*/, '').trim();
-    sub.textContent = `${s.recordedAt} ${ts}`;
-  }
-  document.getElementById('historyTitle').textContent = s.historyTitle;
-  document.getElementById('thId').textContent = s.thId;
-  document.getElementById('thHum').textContent = s.thHum;
-  document.getElementById('thStatus').textContent = s.thStatus;
-  document.getElementById('thRecorded').textContent = s.thRecorded;
-  document.getElementById('legend').innerHTML = `<div style="width:100%;text-align:center;font-weight:700">${s.legend}</div>`;
+// Update droplet visual indicator
+function updateDropletIndicator(humidity) {
+    const indicator = document.getElementById('dropletIndicator');
+    const percentage = Math.min(Math.max(humidity, 0), 100);
+    indicator.style.height = percentage + '%';
 }
 
-/* Save / load language */
-function setLanguage(lang) {
-  try { localStorage.setItem('watta_lang', lang); } catch(e){}
-  const sel = document.getElementById('langSelect');
-  if (sel) sel.value = lang;
-  applyLanguage(lang);
-  // update banner text immediately
-  updateBannerFromValue(currentHum);
-}
+// Initialize with PHP value
+updateDropletIndicator(<?php echo $humidity; ?>);
 
-document.getElementById('langSelect').addEventListener('change', (e) => {
-  setLanguage(e.target.value);
-});
-
-// apply saved language on load
-const savedLang = (function(){ try { return localStorage.getItem('watta_lang') || 'en'; } catch(e){ return 'en'; } })();
-document.getElementById('langSelect').value = savedLang;
-applyLanguage(savedLang);
-
-/* -------------------------
-   HUMIDITY DISPLAY + AUTO-REFRESH
-   ------------------------- */
-let currentHum = parseFloat(<?= json_encode($currentHumidity) ?>) || 0;
-let currentCreated = "<?= e($created_at) ?>";
-
-// DOM refs
-const fillEl = document.getElementById('humidityFill');
-const coverEl = document.getElementById('humidityValue');
-const bigEl = document.getElementById('bigHumidity');
-const statusEl = document.getElementById('humidityStatus');
-const bannerEl = document.getElementById('statusBanner');
-const subTextEl = document.getElementById('subText');
-
-function updateBannerFromValue(hum) {
-  const lang = (function(){ try { return localStorage.getItem('watta_lang') || 'en'; } catch(e){ return 'en'; } })();
-  const S = STRINGS[lang] || STRINGS.en;
-  // set banner + colors + status element
-  if (hum >= 70) {
-    statusEl.textContent = S.status_critical;
-    statusEl.style.color = "#8b1010";
-    bannerEl.style.background = "#ffdede";
-    bannerEl.style.color = "#6b0f0f";
-    bannerEl.textContent = S.status_critical;
-    fillEl.style.background = "#ef4444";
-  } else if (hum > 60) {
-    statusEl.textContent = S.status_optimal;
-    statusEl.style.color = "#0b6b2f";
-    bannerEl.style.background = "#dcfce7";
-    bannerEl.style.color = "#07543a";
-    bannerEl.textContent = S.status_optimal;
-    fillEl.style.background = "#10b981";
-  } else {
-    statusEl.textContent = S.status_warning;
-    statusEl.style.color = "#7c4a00";
-    bannerEl.style.background = "#fff7e6";
-    bannerEl.style.color = "#7a4a00";
-    bannerEl.textContent = S.status_warning;
-    fillEl.style.background = "#f59e0b";
-  }
-}
-
-function updateUI(humid, created_at_local) {
-  currentHum = parseFloat(humid) || 0;
-  currentCreated = created_at_local || currentCreated;
-
-  // Gauge rotation 0..180
-  let rotation = (currentHum / 100) * 180;
-  rotation = Math.max(0, Math.min(180, rotation));
-  if (fillEl) fillEl.style.transform = `rotate(${rotation}deg)`;
-
-  if (coverEl) coverEl.textContent = currentHum.toFixed(1) + "%";
-  if (bigEl) bigEl.textContent = currentHum.toFixed(1) + "%";
-
-  if (subTextEl) subTextEl.textContent = `${STRINGS[localStorage.getItem('watta_lang')||'en'].recordedAt} ${currentCreated}`;
-
-  // banner + status
-  updateBannerFromValue(currentHum);
-}
-
-// initial render
-updateUI(currentHum, currentCreated);
-
-// Poll server every 8 seconds for fresh humidity (endpoint expected to return JSON { humid, cap, created } )
-let refreshTimer = setInterval(refreshHumidity, 8000);
-async function refreshHumidity() {
-  try {
-    const res = await fetch('get_humidity.php', { cache: 'no-store' });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data) return;
-
-    const humid = parseFloat(data.humid ?? data.hum ?? data.Humid_Lvl) || 0;
-    const created = data.created || data.created_at || data.timestamp || currentCreated;
-
-    // update if value changed meaningfully or timestamp changed
-    if (Math.abs(humid - currentHum) > 0.05 || created !== currentCreated) {
-      updateUI(humid, created);
-    }
-  } catch (err) {
-    console.log("refreshHumidity error:", err);
-    // keep banner if offline - do nothing
-  }
-}
-
-/* -------------------------
-   Messages popup + live count
-   ------------------------- */
-const messageBtn = document.getElementById('messageBtn');
-const messagePopup = document.getElementById('messagePopup');
-const closeMsg = document.getElementById('closeMsg');
-const messagesEl = document.getElementById('messages');
-const sortSelect = document.getElementById('sortSelect');
-
-if (messageBtn) {
-  messageBtn.addEventListener('click', () => {
-    messagePopup.style.display = 'flex';
-    messagePopup.setAttribute('aria-hidden','false');
-    loadMessages();
-    const b = document.getElementById('msgCount');
-    if (b) b.style.display = 'none';
-  });
-}
-if (closeMsg) closeMsg.addEventListener('click', ()=> {
-  messagePopup.style.display = 'none';
-  messagePopup.setAttribute('aria-hidden','true');
-});
-
-async function loadMessages() {
-  try {
-    const sort = sortSelect ? sortSelect.value || 'desc' : 'desc';
-    const res = await fetch(`get_messages.php?sort=${encodeURIComponent(sort)}`, {cache:'no-store'});
-    if (!res.ok) throw new Error('Network');
-    const data = await res.json();
-    messagesEl.innerHTML = '';
-    if (!data || data.length === 0) {
-      messagesEl.innerHTML = '<div style="padding:12px;color:#64748b;text-align:center">No messages yet.</div>';
-      return;
-    }
-    data.forEach(m => {
-      const div = document.createElement('div');
-      div.className = 'msg-item';
-      const body = (m.Summary || m.message_text || m.Query || '');
-      const ts = m.date_created || m.created_at || '';
-      div.innerHTML = `<div>${(body+'').replace(/\n/g,'<br/>')}</div>${ts? '<time>' + ts + '</time>':''}`;
-      messagesEl.appendChild(div);
+// Prepare chart data
+const historyData = <?php echo json_encode($historyData); ?>;
+const labels = historyData.map(item => {
+    const date = new Date(item.timestamp * 1000);
+    return date.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
     });
-  } catch(e) {
-    messagesEl.innerHTML = '<div style="padding:12px;color:#b91c1c;text-align:center">Error loading messages.</div>';
-  }
+});
+const humidities = historyData.map(item => item.value);
+
+// Create humidity chart
+const ctx = document.getElementById('humidityChart').getContext('2d');
+const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+gradient.addColorStop(0, 'rgba(0, 180, 216, 0.3)');
+gradient.addColorStop(1, 'rgba(72, 202, 228, 0.05)');
+
+const humidityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: labels,
+        datasets: [{
+            label: 'Humidity (%)',
+            data: humidities,
+            borderColor: '#00b4d8',
+            backgroundColor: gradient,
+            borderWidth: 3,
+            tension: 0.4,
+            fill: true,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            pointBackgroundColor: '#00b4d8',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: 'rgba(0,0,0,0.8)',
+                padding: 12,
+                titleFont: { size: 14 },
+                bodyFont: { size: 13 },
+                callbacks: {
+                    label: function(context) {
+                        return 'Humidity: ' + context.parsed.y.toFixed(1) + '%';
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                min: 0,
+                max: 100,
+                ticks: {
+                    callback: function(value) {
+                        return value + '%';
+                    }
+                },
+                grid: {
+                    color: 'rgba(0,0,0,0.05)'
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+});
+
+// Real-time updates
+async function fetchLatestHumidity() {
+    try {
+        const res = await fetch('api/get_latest.php', { cache: 'no-store' });
+        const { latest } = await res.json();
+        
+        if (latest && latest.humidity !== undefined) {
+            const humidity = parseFloat(latest.humidity);
+            document.getElementById('humidityDisplay').textContent = humidity.toFixed(1) + '%';
+            updateDropletIndicator(humidity);
+            
+            // Update status badge
+            const badge = document.getElementById('statusBadge');
+            badge.classList.remove('ok', 'warn', 'crit');
+            
+            if (humidity >= 70) {
+                badge.classList.add('crit');
+                badge.textContent = 'Critical (Too Wet)';
+            } else if (humidity >= 61) {
+                badge.classList.add('ok');
+                badge.textContent = 'Optimal';
+            } else {
+                badge.classList.add('warn');
+                badge.textContent = 'Warning (Too Dry)';
+            }
+        }
+    } catch (e) {
+        console.error('Error fetching humidity:', e);
+    }
 }
 
-// refresh message count badge
-setInterval(()=> {
-  fetch('get_messages.php?count=1', {cache:'no-store'}).then(r=>r.json()).then(j=>{
-    if (!j) return;
-    const c = j.count || 0;
-    const badge = document.getElementById('msgCount');
-    if (!badge) return;
-    if (c>0) { badge.style.display='inline-block'; badge.textContent = c; } else { badge.style.display='none'; }
-  }).catch(()=>{});
-}, 12000);
-
-/* Ensure language banner correct on load */
-applyLanguage(savedLang);
-updateUI(currentHum, currentCreated);
+// Update every 3 seconds
+setInterval(fetchLatestHumidity, 3000);
 </script>
+
 </body>
 </html>
