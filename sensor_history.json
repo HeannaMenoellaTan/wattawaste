@@ -1,49 +1,46 @@
 {
-  "latest": {
-    "capacity": 50,
-    "timestamp": 1734567890,
-    "value": 21.5
+  "gas": {
+    "latest": { "value": 120, "timestamp": 1734567890 },
+    "history": {
+      "gas_1734567800": { "value": 115, "timestamp": 1734567800 },
+      "gas_1734567850": { "value": 118, "timestamp": 1734567850 },
+      "gas_1734567890": { "value": 120, "timestamp": 1734567890 }
+    }
   },
-  "history": {
-    "weight_1734567800": {
-      "timestamp": 1734567800,
-      "value": 15.20
+  "humidity": {
+    "latest": { "value": 55.0, "timestamp": 1734567890 },
+    "history": {
+      "hum_1734567800": { "value": 53.0, "timestamp": 1734567800 },
+      "hum_1734567850": { "value": 54.0, "timestamp": 1734567850 },
+      "hum_1734567890": { "value": 55.0, "timestamp": 1734567890 }
+    }
+  },
+  "ph": {
+    "latest": { "value": 7.2, "timestamp": 1734567890 },
+    "history": {
+      "ph_1734567800": { "value": 7.1, "timestamp": 1734567800 },
+      "ph_1734567850": { "value": 7.15, "timestamp": 1734567850 },
+      "ph_1734567890": { "value": 7.2, "timestamp": 1734567890 }
+    }
+  },
+  "temperature": {
+    "latest": { "value": 45.2, "timestamp": 1734567890 },
+    "history": {
+      "temp_1734567800": { "value": 44.5, "timestamp": 1734567800 },
+      "temp_1734567850": { "value": 45.0, "timestamp": 1734567850 },
+      "temp_1734567890": { "value": 45.2, "timestamp": 1734567890 }
+    }
+  },
+  "weight": {
+    "latest": { 
+      "value": 15.5, 
+      "capacity": 50,
+      "timestamp": 1734567890 
     },
-    "weight_1734567850": {
-      "timestamp": 1734567850,
-      "value": 1.20
-    },
-    "weight_1734567890": {
-      "timestamp": 1734567890,
-      "value": 15.20
-    },
-    "weight_1734567920": {
-      "timestamp": 1734567920,
-      "value": 1.20
-    },
-    "weight_1734567950": {
-      "timestamp": 1734567950,
-      "value": 5.20
-    },
-    "weight_1734567980": {
-      "timestamp": 1734567980,
-      "value": 2.20
-    },
-    "weight_1734568010": {
-      "timestamp": 1734568010,
-      "value": 1.20
-    },
-    "weight_1734568040": {
-      "timestamp": 1734568040,
-      "value": 14.0
-    },
-    "weight_1734568070": {
-      "timestamp": 1734568070,
-      "value": 16.5
-    },
-    "weight_1734568100": {
-      "timestamp": 1734568100,
-      "value": 18.3
+    "history": {
+      "weight_1734567800": { "value": 14.0, "timestamp": 1734567800 },
+      "weight_1734567850": { "value": 14.8, "timestamp": 1734567850 },
+      "weight_1734567890": { "value": 15.5, "timestamp": 1734567890 }
     }
   }
 }

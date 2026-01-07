@@ -1,192 +1,410 @@
 <?php
-// ==== SENSOR STATUS FUNCTION ====
-function getSensorStatus($conn, $table, $valueField, $timeField) {
-    $q = $conn->query("SELECT $valueField, $timeField FROM $table ORDER BY $timeField DESC LIMIT 1");
-    if (!$q || $q->num_rows == 0) return ['status'=>'faulty','time'=>'No data'];
+/**
+ * Admin Navigation - Custom Design
+ * For Admin Dashboard Only
+ */
 
-    $row = $q->fetch_assoc();
-    $val = $row[$valueField];
-    $time = strtotime($row[$timeField]);
-    $diff = time() - $time;
+require_once 'check_role.php';
 
-    if ($val === null || $val < 0) return ['status'=>'faulty','time'=>$diff];
-    if ($diff <= 10) return ['status'=>'online','time'=>$diff];
-    if ($diff <= 30) return ['status'=>'delayed','time'=>$diff];
-    return ['status'=>'offline','time'=>$diff];
-}
-
-// Fetch statuses
-$tempStatus = getSensorStatus($conn,'temperatures','Temp_Ave','Created_At');
-$humStatus  = getSensorStatus($conn,'humidity','Humid_Lvl','Created_At');
-$gasStatus  = getSensorStatus($conn,'gas','Gas_Lvl','Created_At');
-$phStatus   = getSensorStatus($conn,'ph','pH_Value','Created_At');
-
-$sensors = [
-    'Temperature' => $tempStatus,
-    'Humidity'    => $humStatus,
-    'Gas'         => $gasStatus,
-    'pH'          => $phStatus
-];
+// Get current page
+$current_page = basename($_SERVER['PHP_SELF']);
 ?>
 
-<!-- ===== TOP NAV ===== -->
-<div class="top-nav d-flex justify-content-between align-items-center p-2 px-3 shadow-sm bg-white rounded-3">
-    <h1 class="page-title m-0">WattAWaste</h1>
-
-    <div class="top-right d-flex align-items-center gap-3">
-
-        <!-- DATE & TIME -->
-        <div id="dateTime" class="datetime fw-semibold"></div>
-
-        <!-- SENSOR STATUS DROPDOWN -->
-        <div class="dropdown">
-            <button class="btn btn-light dropdown-toggle" type="button" id="sensorDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                ⚡ Sensor Status
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="sensorDropdown">
-                <?php foreach($sensors as $name => $sensor): 
-                    $statusClass = $sensor['status']; 
-                    $timeAgo = is_numeric($sensor['time']) ? $sensor['time'].'s ago' : $sensor['time'];
-                    $icon = match($name){
-                        'Temperature'=>'🌡️',
-                        'Humidity'=>'💧',
-                        'Gas'=>'💨',
-                        'pH'=>'⚗️',
-                        default=>'📡'
-                    };
-                ?>
-                <li>
-                    <div class="dropdown-item d-flex justify-content-between align-items-center">
-                        <span><?php echo "$icon $name"; ?></span>
-                        <span class="dot <?php echo $statusClass; ?>"></span>
-                        <small class="text-muted"><?php echo $timeAgo; ?></small>
-                    </div>
-                </li>
-                <?php endforeach; ?>
-            </ul>
-        </div>
-
-        <!-- FAULTY SENSOR COUNT -->
-        <div class="faulty" id="faultyText">
-            ⚠️ 0 Faulty Sensors
-        </div>
-
-        <!-- PROFILE DROPDOWN -->
-        <div class="dropdown">
-            <button class="btn btn-light dropdown-toggle p-0 border-0" type="button" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                <img src="profile.jpg" alt="Profile" class="rounded-circle" width="40" height="40">
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
-                <li><a class="dropdown-item" href="#">Profile</a></li>
-                <li><a class="dropdown-item" href="#">Settings</a></li>
-                <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item text-danger" href="logout.php">Logout</a></li>
-            </ul>
-        </div>
-
-    </div>
-</div>
-
-<!-- ===== STYLES ===== -->
 <style>
-body {
+* {
     margin: 0;
     padding: 0;
+    box-sizing: border-box;
 }
-.top-nav {
-    position: sticky;
-    top: 0;
+
+body {
+    font-family: 'Poppins', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #f5f7fa;
+}
+
+.admin-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* Sidebar Styles */
+.admin-sidebar {
+    width: 238px;
+    background: linear-gradient(180deg, #d4f1d4 0%, #b8e6b8 100%);
+    position: fixed;
     left: 0;
-    right: 0;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.05);
     z-index: 1000;
-    background: rgba(255,255,255,0.95);
-    backdrop-filter: blur(12px);
+}
+
+/* Logo Section */
+.admin-logo {
+    padding: 30px 20px;
+    text-align: center;
+    background: white;
+    margin: 20px 20px 30px 20px;
+    border-radius: 20px;
+}
+
+.logo-circle {
+    width: 80px;
+    height: 80px;
+    background: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 15px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.logo-icon {
+    width: 50px;
+    height: 50px;
+}
+
+.logo-title {
+    font-size: 14px;
+    color: #2d5016;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-top: 10px;
+}
+
+/* Navigation Menu */
+.admin-menu {
+    flex: 1;
+    padding: 0 10px;
+}
+
+.admin-menu-item {
+    display: flex;
+    align-items: center;
+    padding: 14px 20px;
+    margin: 5px 0;
+    color: #2d5016;
+    text-decoration: none;
     border-radius: 12px;
+    font-weight: 600;
+    font-size: 15px;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.admin-menu-item i {
+    width: 24px;
+    margin-right: 12px;
+    font-size: 18px;
+}
+
+.admin-menu-item:hover {
+    background: rgba(255,255,255,0.5);
+    transform: translateX(5px);
+}
+
+.admin-menu-item.active {
+    background: #2d5016;
+    color: white;
+    box-shadow: 0 4px 12px rgba(45,80,22,0.3);
+}
+
+.admin-menu-item.active i {
+    color: white;
+}
+
+/* Logout Button */
+.admin-logout {
+    padding: 20px;
+    margin-top: auto;
+}
+
+.logout-btn {
+    display: flex;
+    align-items: center;
+    padding: 14px 20px;
+    background: rgba(239,68,68,0.1);
+    color: #dc2626;
+    text-decoration: none;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 15px;
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+}
+
+.logout-btn:hover {
+    background: #dc2626;
+    color: white;
+    border-color: white;
+    transform: translateY(-2px);
+}
+
+.logout-btn i {
+    margin-right: 10px;
+}
+
+.version-text {
+    text-align: center;
+    color: #6b7280;
+    font-size: 11px;
+    margin-top: 10px;
+}
+
+/* Main Content Area */
+.admin-main {
+    margin-left: 238px;
+    flex: 1;
+    padding: 20px;
+    min-height: 100vh;
+}
+
+/* Top Bar */
+.admin-topbar {
+    background: white;
+    border-radius: 12px;
+    padding: 15px 25px;
+    margin-bottom: 25px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.page-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.page-icon {
+    width: 45px;
+    height: 45px;
+    background: linear-gradient(135deg, #d4f1d4, #b8e6b8);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+}
+
+.page-title-text {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.admin-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.admin-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    animation: adminPulse 2s infinite;
+}
+
+@keyframes adminPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+.admin-avatar {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #23ed99ff, #0f8156ff);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 700;
+    font-size: 18px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.datetime-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #6b7280;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.datetime-display i {
+    color: #4CAF50;
+}
+
+/* Security Notice */
+.security-notice {
+    background: #FFF3CD;
+    border-left: 4px solid #FFC107;
+    padding: 12px 16px;
+    border-radius: 8px;
     margin-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    transition: transform 0.3s ease; /* for smooth hide/show */
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
 }
-.top-nav.hidden {
-    transform: translateY(-120%); /* moves it up out of view */
-}
-.page-title { color:#2E7D32; font-weight:700; font-size:1.25rem; }
-.top-right .datetime { color:#2E7D32; opacity:.85; font-weight:600; }
-.dropdown-menu { min-width:250px;  z-index: 4000;}
-.dropdown-item { display:flex; justify-content:space-between; align-items:center; }
-/* Cards should not block dropdown */
-.card, .dashboard-container {
-    position: relative;   /* keep for shadows */
-    z-index: 1;           /* low enough so dropdown is on top */
-}
-.dot { width:10px; height:10px; border-radius:50%; margin-left:8px; }
-.dot.online  { background:#2ecc71; }
-.dot.delayed { background:#f1c40f; }
-.dot.offline { background:#e74c3c; }
-.dot.faulty  { background:#7f8c8d; }
-.faulty { font-size:14px; font-weight:600; color:#E65100; }
-.main {
-    padding-top: 0; /* no extra padding needed if sticky inside main */
+
+.security-notice i {
+    color: #FF6B00;
+    font-size: 18px;
 }
 </style>
 
-<!-- ===== SCRIPTS ===== -->
-<script>
-function updateDateTime(){
-    const now = new Date();
-    const options = { month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit' };
-    document.getElementById('dateTime').textContent = now.toLocaleString('en-US', options);
-}
-setInterval(updateDateTime, 1000);
-updateDateTime();
+<div class="admin-layout">
+    <!-- Admin Sidebar -->
+    <div class="admin-sidebar">
+        <!-- Logo Section -->
+        <div class="admin-logo">
+            <div class="logo-circle">
+                <img src="assets/images/logo.png" alt="WattAWaste" class="logo-icon" onerror="this.style.display='none'">
+                <i class="fas fa-recycle" style="font-size: 32px; color: #4CAF50; display: none;"></i>
+            </div>
+            <div class="logo-title">" WattAWaste " Aerobic and Anaerobic<br>Waste Hybrid Bin</div>
+        </div>
 
-// Update faulty sensor count dynamically
-function updateFaultyCount() {
-    const dots = document.querySelectorAll('.dropdown-item .dot.faulty');
-    const count = dots.length;
-    document.getElementById('faultyText').textContent = `⚠️ ${count} Faulty Sensor${count!==1?'s':''}`;
-}
-updateFaultyCount();
+        <!-- Navigation Menu -->
+        <nav class="admin-menu">
+            <a href="admin_dashboard.php" class="admin-menu-item <?php echo $current_page == 'admin_dashboard.php' ? 'active' : ''; ?>">
+                <i class="fas fa-home"></i>
+                <span>Admin Dashboard</span>
+            </a>
 
-// Optional: live refresh of sensor dropdown
-async function refreshSensors(){
-    try{
-        const res = await fetch('sensor_status.php'); // JSON array of sensors
-        const data = await res.json();
-        const dropdown = document.querySelector('#sensorDropdown + .dropdown-menu');
-        dropdown.innerHTML = '';
-        data.forEach(sensor => {
-            const iconMap = {'Temperature':'🌡️','Humidity':'💧','Gas':'💨','pH':'⚗️'};
-            const icon = iconMap[sensor.name]||'📡';
-            const timeAgo = isNaN(sensor.lastUpdate)?sensor.lastUpdate:sensor.lastUpdate+'s ago';
-            dropdown.innerHTML += `
-                <li>
-                    <div class="dropdown-item d-flex justify-content-between align-items-center">
-                        <span>${icon} ${sensor.name}</span>
-                        <span class="dot ${sensor.class}"></span>
-                        <small class="text-muted">${timeAgo}</small>
+            <a href="user_management.php" class="admin-menu-item <?php echo $current_page == 'user_management.php' ? 'active' : ''; ?>">
+                <i class="fas fa-users"></i>
+                <span>Users</span>
+            </a>
+
+            <a href="index.php" class="admin-menu-item <?php echo $current_page == 'index.php' ? 'active' : ''; ?>">
+                <i class="fas fa-seedling"></i>
+                <span>Plant Data</span>
+            </a>
+
+            <a href="admin_settings.php" class="admin-menu-item <?php echo $current_page == 'admin_settings.php' ? 'active' : ''; ?>">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+        </nav>
+
+        <!-- Logout Section -->
+        <div class="admin-logout">
+            <a href="logout.php" class="logout-btn">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Log Out</span>
+            </a>
+            <div class="version-text">Hybrid Compost Bin V 1.0</div>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="admin-main">
+        <!-- Top Bar -->
+        <div class="admin-topbar">
+            <div class="page-header">
+                <div class="page-icon">
+                    <?php 
+                    // Dynamic icon based on page
+                    $icons = [
+                        'admin_dashboard.php' => '📊',
+                        'user_management.php' => '👥',
+                        'index.php' => '🌱',
+                        'admin_settings.php' => '⚙️'
+                    ];
+                    echo $icons[$current_page] ?? '📄';
+                    ?>
+                </div>
+                <div>
+                    <div class="page-title-text">
+                        <?php 
+                        $titles = [
+                            'admin_dashboard.php' => 'Admin Dashboard',
+                            'user_management.php' => "User's Information",
+                            'index.php' => "Plant's Data",
+                            'admin_settings.php' => 'System Settings'
+                        ];
+                        echo $titles[$current_page] ?? 'Admin Panel';
+                        ?>
                     </div>
-                </li>
-            `;
-        });
-        updateFaultyCount();
-    } catch(e){ console.error('Sensor fetch error', e); }
-}
-setInterval(refreshSensors, 3000);
-let lastScroll = 0;
-const topNav = document.querySelector('.top-nav');
+                </div>
+            </div>
 
-window.addEventListener('scroll', () => {
-    const currentScroll = window.pageYOffset || document.documentElement.scrollTop;
-    if (currentScroll > lastScroll) {
-        // scrolling down
-        topNav.classList.add('hidden');
-    } else {
-        // scrolling up
-        topNav.classList.remove('hidden');
+            <div class="admin-info">
+                <div class="datetime-display">
+                    <i class="far fa-clock"></i>
+                    <span id="currentDateTime">Loading...</span>
+                </div>
+
+                <div class="admin-badge">
+                    <i class="fas fa-shield-alt"></i>
+                    <span>ADMIN</span>
+                </div>
+
+                <div class="admin-avatar" title="<?php echo htmlspecialchars(getCurrentUsername()); ?>">
+                    <?php echo strtoupper(substr(getCurrentUsername(), 0, 1)); ?>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Notice (optional - shows on first page) -->
+        <?php if ($current_page == 'admin_dashboard.php'): ?>
+        <div class="security-notice">
+            <i class="fas fa-shield-alt"></i>
+            <div>
+                <strong>Security Notice:</strong> You are logged in as an administrator. 
+                Please be careful with user data and system settings.
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- Page Content Goes Here -->
+        <div class="admin-content">
+</div>
+</div>
+</div>
+
+<script>
+// Update DateTime
+function updateDateTime() {
+    const now = new Date();
+    const options = { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit',
+        second: '2-digit'
+    };
+    const dateTimeElement = document.getElementById('currentDateTime');
+    if (dateTimeElement) {
+        dateTimeElement.textContent = now.toLocaleString('en-US', options);
     }
-    lastScroll = currentScroll <= 0 ? 0 : currentScroll; // avoid negative scroll
-});
+}
+
+updateDateTime();
+setInterval(updateDateTime, 1000);
+
+// Log admin access
+console.log('🛡️ Admin Panel Loaded');
+console.log('User: <?php echo htmlspecialchars(getCurrentUsername()); ?>');
+console.log('Page: <?php echo $current_page; ?>');
 </script>
 
-<!-- Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Font Awesome -->
+<script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>

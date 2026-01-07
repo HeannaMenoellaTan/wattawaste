@@ -7,7 +7,7 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
     $userId = $_SESSION['username'] ?? $_SESSION['user_id'];
     
     if (isAdmin($userId)) {
-        header("Location: admin_dashboard.php");
+        header("Location: admin_dasboard.php");
     } else {
         header("Location: index.php");
     }
@@ -470,7 +470,7 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
                     showSuccess('Login successful! Redirecting...');
                     setTimeout(() => {
                         if (userData.Role === 'Admin') {
-                            window.location.href = 'admin_dashboard.php';
+                            window.location.href = 'admin_dasboard.php';
                         } else {
                             window.location.href = 'index.php';
                         }
