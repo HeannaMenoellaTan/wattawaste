@@ -1,25 +1,9 @@
-<?php
-session_start();
-
-// If already logged in, redirect to appropriate dashboard
-if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
-    require_once 'firebase_admin_check.php';
-    $userId = $_SESSION['username'] ?? $_SESSION['user_id'];
-    
-    if (isAdmin($userId)) {
-        header("Location: admin_dasboard.php");
-    } else {
-        header("Location: index.php");
-    }
-    exit();
-}
-?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - WattAWaste</title>
+    <title>Login - Firebase Authentication</title>
     <style>
         * {
             margin: 0;
@@ -257,7 +241,7 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
     <div class="login-container">
         <div class="logo">
             <h1>Welcome Back</h1>
-            <p>Login to WattAWaste</p>
+            <p>Login to your account</p>
         </div>
 
         <div class="error-message" id="errorMessage"></div>
@@ -326,10 +310,12 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
     </div>
 
     <script type="module">
+        // Firebase Configuration
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth, signInWithEmailAndPassword, signInWithPhoneNumber, RecaptchaVerifier, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getDatabase, ref, get } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+        import { getDatabase } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
+        // Your web app's Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
             authDomain: "wattawaste-d3503.firebaseapp.com",
@@ -341,6 +327,7 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
             measurementId: "G-33Z8K3NBY1"
         };
 
+        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const database = getDatabase(app);
@@ -377,7 +364,7 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
             initRecaptcha();
         });
 
-        // Initialize Recaptcha
+        // Initialize Recaptcha for Phone Auth
         function initRecaptcha() {
             if (!recaptchaVerifier) {
                 try {
@@ -390,13 +377,19 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
                             console.log('Recaptcha expired');
                         }
                     });
-                    recaptchaVerifier.render();
+                    recaptchaVerifier.render().then((widgetId) => {
+                        console.log('Recaptcha rendered with widget ID:', widgetId);
+                    }).catch((error) => {
+                        console.error('Recaptcha render error:', error);
+                        showError('Failed to load reCAPTCHA. Please refresh the page.');
+                    });
                 } catch (error) {
                     console.error('Recaptcha initialization error:', error);
                 }
             }
         }
 
+        // Show/Hide Messages
         function showError(message) {
             errorMessage.textContent = message;
             errorMessage.style.display = 'block';
@@ -412,80 +405,6 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
         function hideMessages() {
             errorMessage.style.display = 'none';
             successMessage.style.display = 'none';
-        }
-
-        // Get user data from Firebase and set PHP session
-        async function loginWithFirebase(user) {
-            try {
-                // Get user data from Firebase Realtime Database
-                const usersRef = ref(database, 'users');
-                const snapshot = await get(usersRef);
-                
-                let userData = null;
-                let userKey = null;
-                
-                if (snapshot.exists()) {
-                    const users = snapshot.val();
-                    // Find user by email or phone
-                    for (const [key, value] of Object.entries(users)) {
-                        if (value.Email === user.email || value.Phone === user.phoneNumber) {
-                            userData = value;
-                            userKey = key;
-                            break;
-                        }
-                    }
-                }
-                
-                if (!userData) {
-                    showError('User not found in database. Please contact administrator.');
-                    return false;
-                }
-                
-                // Check if user is active
-                if (userData.Status !== 'Active') {
-                    showError('Your account is inactive. Please contact administrator.');
-                    return false;
-                }
-                
-                // Send user data to PHP session via AJAX
-                const response = await fetch('set_session.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: userKey,
-                        username: userData.Username,
-                        email: userData.Email,
-                        phone: userData.Phone,
-                        role: userData.Role,
-                        status: userData.Status
-                    })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    // Redirect based on role
-                    showSuccess('Login successful! Redirecting...');
-                    setTimeout(() => {
-                        if (userData.Role === 'Admin') {
-                            window.location.href = 'admin_dasboard.php';
-                        } else {
-                            window.location.href = 'index.php';
-                        }
-                    }, 1000);
-                    return true;
-                } else {
-                    showError('Session creation failed. Please try again.');
-                    return false;
-                }
-                
-            } catch (error) {
-                console.error('Login error:', error);
-                showError('An error occurred during login. Please try again.');
-                return false;
-            }
         }
 
         // Email/Password Login
@@ -507,7 +426,7 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
                     document.getElementById('verificationSection').classList.remove('hidden');
                     phoneLoginBtn.textContent = 'Code Sent';
                 } catch (error) {
-                    showError(getErrorMessage(error.code));
+                    showError(error.message);
                     phoneLoginBtn.disabled = false;
                     phoneLoginBtn.textContent = 'Send Verification Code';
                 }
@@ -522,9 +441,17 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
 
                 try {
                     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                    await loginWithFirebase(userCredential.user);
+                    showSuccess('Login successful! Redirecting...');
+                    
+                    // Store user info in sessionStorage
+                    sessionStorage.setItem('userEmail', userCredential.user.email);
+                    sessionStorage.setItem('userId', userCredential.user.uid);
+                    
+                    setTimeout(() => {
+                        window.location.href = 'index.php'; // Redirect to your dashboard
+                    }, 1500);
                 } catch (error) {
-                    console.error('Login error:', error);
+                    console.error('Login error:', error); // Debug log
                     showError(getErrorMessage(error.code));
                     emailLoginBtn.disabled = false;
                     emailLoginBtn.textContent = 'Login with Email';
@@ -543,7 +470,10 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
 
             try {
                 const result = await confirmationResult.confirm(code);
-                await loginWithFirebase(result.user);
+                showSuccess('Phone verified! Logging in...');
+                setTimeout(() => {
+                    window.location.href = '/dashboard.html'; // Redirect to your dashboard
+                }, 1500);
             } catch (error) {
                 showError('Invalid verification code. Please try again.');
                 verifyBtn.disabled = false;
@@ -551,7 +481,7 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
             }
         });
 
-        // Google Sign In
+        // Google Sign In - Only for whitelisted users
         googleLoginBtn.addEventListener('click', async () => {
             hideMessages();
             googleLoginBtn.disabled = true;
@@ -563,10 +493,89 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
             
             try {
                 const result = await signInWithPopup(auth, provider);
-                await loginWithFirebase(result.user);
+                const userEmail = result.user.email;
+                const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
+                
+                // If this is a new user (first time signing in), check authorization
+                if (isNewUser) {
+                    // Check if user is authorized via backend
+                    try {
+                        const checkResponse = await fetch('check_user.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: userEmail })
+                        });
+                        
+                        const { authorized } = await checkResponse.json();
+                        
+                        if (!authorized) {
+                            // User not authorized - delete the account and sign them out
+                            await result.user.delete(); // Delete the newly created user
+                            await signOut(auth);
+                            showError(`Access denied. The email "${userEmail}" is not authorized. Please contact the administrator.`);
+                            googleLoginBtn.disabled = false;
+                            return;
+                        }
+                    } catch (checkError) {
+                        console.error('Authorization check error:', checkError);
+                        // If check fails, deny access to be safe
+                        await result.user.delete();
+                        await signOut(auth);
+                        showError('Unable to verify authorization. Please try again or contact the administrator.');
+                        googleLoginBtn.disabled = false;
+                        return;
+                    }
+                }
+                
+                // User is authorized (either existing or newly approved)
+                
+                // Sync user to database and get role
+                let userRole = 'user';
+                try {
+                    const syncResponse = await fetch('sync_user.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId: result.user.uid,
+                            email: userEmail,
+                            name: result.user.displayName || ''
+                        })
+                    });
+                    const syncData = await syncResponse.json();
+                    userRole = syncData.user?.role || 'user';
+                } catch (syncError) {
+                    console.warn('User sync failed:', syncError);
+                }
+                
+                showSuccess('Login successful! Redirecting...');
+                
+                // Store user info
+                sessionStorage.setItem('userEmail', userEmail);
+                sessionStorage.setItem('userName', result.user.displayName || '');
+                sessionStorage.setItem('userId', result.user.uid);
+                sessionStorage.setItem('userRole', userRole);
+                
+                setTimeout(() => {
+                    // Redirect based on role
+                    if (userRole === 'admin') {
+                        window.location.href = 'admin_dashboard.php';
+                    } else {
+                        window.location.href = 'index.php';
+                    }
+                }, 1500);
+                
             } catch (error) {
                 console.error('Google login error:', error);
-                showError(getErrorMessage(error.code));
+                
+                if (error.code === 'auth/popup-closed-by-user') {
+                    showError('Sign-in cancelled.');
+                } else if (error.code === 'auth/unauthorized-domain') {
+                    showError('This domain is not authorized for Google Sign-In. Please add your domain to Firebase Console.');
+                } else if (error.code === 'auth/account-exists-with-different-credential') {
+                    showError('An account already exists with this email using a different sign-in method.');
+                } else {
+                    showError(getErrorMessage(error.code));
+                }
                 googleLoginBtn.disabled = false;
             }
         });
@@ -588,6 +597,7 @@ if (isset($_SESSION['username']) || isset($_SESSION['user_id'])) {
             }
         });
 
+        // Error Message Mapping
         function getErrorMessage(errorCode) {
             const errorMessages = {
                 'auth/invalid-email': 'Invalid email address.',
