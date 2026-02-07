@@ -1,75 +1,7 @@
 <?php
+// Minimal PHP - just for auth check and page structure
+// All data will be fetched from Firebase via JavaScript
 require_once 'firebase_config.php';
-
-// ==== Get Latest Weight Data from Firebase ====
-try {
-    $database = getDatabase();
-    
-    // Get latest weight
-    $latestRef = $database->getReference('sensors/weight/latest');
-    $latestSnapshot = $latestRef->getSnapshot();
-    
-    if ($latestSnapshot->exists()) {
-        $latestData = $latestSnapshot->getValue();
-        $currentWeight = $latestData['value'] ?? 0;
-        $weightCapacity = $latestData['capacity'] ?? 50;
-        $lastUpdate = $latestData['timestamp'] ?? time();
-    } else {
-        $currentWeight = 0;
-        $weightCapacity = 50;
-        $lastUpdate = time();
-    }
-    
-    // Calculate fertilizer output (50% of current weight)
-    $fertilizerOutput = round($currentWeight * 0.5, 2);
-    
-    // Determine if bin is almost full (>80%)
-    $weightPercentage = ($currentWeight / $weightCapacity) * 100;
-    $showWarning = $weightPercentage >= 80;
-    
-    // ==== Fetch Weight History from Firebase ====
-    $historyRef = $database->getReference('sensors/weight/history');
-    $historySnapshot = $historyRef->getSnapshot();
-    
-    $historyData = [];
-    if ($historySnapshot->exists()) {
-        foreach ($historySnapshot->getValue() as $key => $item) {
-            $historyData[] = [
-                'timestamp' => $item['timestamp'] ?? time(),
-                'value' => $item['value'] ?? 0
-            ];
-        }
-    }
-    
-    // Sort by timestamp (newest first) and limit to 50
-    usort($historyData, function($a, $b) {
-        return $b['timestamp'] - $a['timestamp'];
-    });
-    $historyData = array_slice($historyData, 0, 50);
-    
-    // Calculate statistics
-    $avgWeight = 0;
-    $maxWeight = 0;
-    $minWeight = $weightCapacity;
-    if (!empty($historyData)) {
-        $weights = array_column($historyData, 'value');
-        $avgWeight = array_sum($weights) / count($weights);
-        $maxWeight = max($weights);
-        $minWeight = min($weights);
-    }
-    
-} catch (Exception $e) {
-    error_log("Weight page error: " . $e->getMessage());
-    $currentWeight = 0;
-    $weightCapacity = 50;
-    $fertilizerOutput = 0;
-    $showWarning = false;
-    $historyData = [];
-    $lastUpdate = time();
-    $avgWeight = 0;
-    $maxWeight = 0;
-    $minWeight = 0;
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -82,10 +14,11 @@ try {
 <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<!-- Firebase Auth -->
+<!-- Firebase Auth and Database -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import { getDatabase, ref, onValue, query, limitToLast } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
 const firebaseConfig = {
     apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
@@ -100,6 +33,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const database = getDatabase(app);
 
 onAuthStateChanged(auth, (user) => {
     if (!user) {
@@ -109,10 +43,18 @@ onAuthStateChanged(auth, (user) => {
         console.log('✅ User authenticated:', user.email || user.phoneNumber);
         sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
         sessionStorage.setItem('userId', user.uid);
+        
+        // Initialize weight monitoring after authentication
+        window.initializeWeightMonitoring();
     }
 });
 
 window.firebaseAuth = auth;
+window.firebaseDatabase = database;
+window.firebaseRef = ref;
+window.firebaseOnValue = onValue;
+window.firebaseQuery = query;
+window.firebaseLimitToLast = limitToLast;
 </script>
 
 <?php include_once 'notif_bell.php'; ?>
@@ -326,7 +268,7 @@ body {
     margin-top: 8px;
 }
 
-/* History Items - Temperature Page Style */
+/* History Items */
 .history-item {
     display: flex;
     justify-content: space-between;
@@ -403,89 +345,77 @@ body {
 <div class="container-fluid px-4 py-4">
 
 <!-- Warning Popup Overlay -->
-<?php if ($showWarning): ?>
-<div class="warning-popup-overlay show" id="warningOverlay" onclick="closeWarning()"></div>
-<div class="warning-popup show" id="warningPopup">
+<div class="warning-popup-overlay" id="warningOverlay" onclick="closeWarning()"></div>
+<div class="warning-popup" id="warningPopup">
     <i class="fas fa-exclamation-triangle"></i>
     <h3>⚠️ Warning!</h3>
-    <p>The bin is almost full (<?= number_format($weightPercentage, 1) ?>%)!</p>
+    <p id="warningText">The bin is almost full!</p>
     <button onclick="closeWarning()">Got it</button>
 </div>
-<?php endif; ?>
 
 <h1 class="page-title">⚖️ Weight Monitoring</h1>
 
-<!-- Original Two-Card Design -->
+<!-- Two-Card Design -->
 <div class="cards-row">
     <!-- Current Weight Card -->
     <div class="weight-card">
         <h3><i class="fas fa-weight me-2"></i>Current Weight</h3>
-        <div class="weight-value" id="currentWeightDisplay"><?= number_format($currentWeight, 2) ?> kg</div>
-        <div class="weight-capacity">Capacity: <?= $weightCapacity ?> kg</div>
+        <div class="weight-value" id="currentWeightDisplay">-- kg</div>
+        <div class="weight-capacity">Capacity: <span id="capacityDisplay">1</span> kg</div>
         <div class="progress-bar-container">
-            <div class="progress-bar-fill" id="weightProgress" style="
-                width: <?= min(100, $weightPercentage) ?>%; 
-                background: <?= $weightPercentage >= 80 ? 'linear-gradient(90deg, #ff6b6b, #ee5a6f)' : 
-                              ($weightPercentage >= 60 ? 'linear-gradient(90deg, #ffd93d, #f6c23e)' : 
-                              'linear-gradient(90deg, #6fcf97, #27ae60)') ?>;
-            "></div>
+            <div class="progress-bar-fill" id="weightProgress" style="width: 0%;"></div>
         </div>
-        <div class="mt-2 text-muted" style="font-size: 13px;">
-            <?= number_format($weightPercentage, 1) ?>% Full
+        <div class="mt-2 text-muted" style="font-size: 13px;" id="weightPercentText">
+            0.0% Full
         </div>
     </div>
     
     <!-- Total Compost Fertilizer Card -->
     <div class="weight-card">
         <h3><i class="fas fa-seedling me-2"></i>Total Compost Fertilizer</h3>
-        <div class="weight-value" id="fertilizerDisplay"><?= number_format($fertilizerOutput, 1) ?> kg</div>
+        <div class="weight-value" id="fertilizerDisplay">-- kg</div>
         <div class="weight-capacity">Current yield (50% conversion)</div>
         <div class="progress-bar-container">
-            <div class="progress-bar-fill" id="fertilizerProgress" style="
-                width: <?= min(100, ($fertilizerOutput / ($weightCapacity * 0.5)) * 100) ?>%; 
-                background: linear-gradient(90deg, #ffd93d, #f6c23e);
-            "></div>
+            <div class="progress-bar-fill" id="fertilizerProgress" style="width: 0%;"></div>
         </div>
-        <div class="mt-2 text-muted" style="font-size: 13px;">
-            Maximum: <?= number_format($weightCapacity * 0.5, 1) ?> kg
+        <div class="mt-2 text-muted" style="font-size: 13px;" id="fertilizerMaxText">
+            Maximum: 0.5 kg
         </div>
     </div>
 </div>
 
-<?php if ($weightPercentage >= 80): ?>
-<div class="alert-custom warning mb-4">
+<div class="alert-custom warning mb-4" id="warningBanner" style="display: none;">
     <i class="fas fa-exclamation-triangle me-2"></i>
-    <strong>Warning:</strong> The bin is reaching capacity (<?php echo number_format($weightPercentage, 1); ?>%). Consider emptying soon.
+    <strong>Warning:</strong> <span id="warningBannerText"></span>
 </div>
-<?php endif; ?>
 
 <!-- Statistics Cards -->
 <div class="row g-4 mb-4">
     <div class="col-md-3">
         <div class="card stat-card">
             <i class="fas fa-weight-hanging text-success mb-2" style="font-size: 32px;"></i>
-            <div class="stat-value"><?php echo number_format($maxWeight, 2); ?> kg</div>
+            <div class="stat-value" id="maxWeightStat">-- kg</div>
             <div class="stat-label">Maximum Weight</div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card stat-card">
             <i class="fas fa-chart-line text-primary mb-2" style="font-size: 32px;"></i>
-            <div class="stat-value"><?php echo number_format($avgWeight, 2); ?> kg</div>
+            <div class="stat-value" id="avgWeightStat">-- kg</div>
             <div class="stat-label">Average Weight</div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card stat-card">
             <i class="fas fa-arrow-down text-info mb-2" style="font-size: 32px;"></i>
-            <div class="stat-value"><?php echo number_format($minWeight, 2); ?> kg</div>
+            <div class="stat-value" id="minWeightStat">-- kg</div>
             <div class="stat-label">Minimum Weight</div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card stat-card">
             <i class="fas fa-seedling text-warning mb-2" style="font-size: 32px;"></i>
-            <div class="stat-value"><?php echo number_format($fertilizerOutput, 1); ?> kg</div>
+            <div class="stat-value" id="fertilizerStat">-- kg</div>
             <div class="stat-label">Fertilizer Output</div>
         </div>
     </div>
@@ -497,7 +427,7 @@ body {
         <div class="card p-4">
             <h5 class="mb-3">
                 <i class="fas fa-chart-area text-primary me-2"></i>
-                Weight Trend (Last <?php echo count($historyData); ?> Readings)
+                Weight Trend <span id="readingsCount">(Loading...)</span>
             </h5>
             <canvas id="weightChart" style="max-height: 350px;"></canvas>
         </div>
@@ -513,30 +443,7 @@ body {
                 Recent Weight Readings
             </h5>
             <div id="historyContainer" style="max-height: 500px; overflow-y: auto;">
-                <?php if (empty($historyData)): ?>
-                    <p class="text-muted text-center py-4">No history data available</p>
-                <?php else: ?>
-                    <?php foreach (array_slice($historyData, 0, 20) as $record): ?>
-                    <div class="history-item">
-                        <div>
-                            <div class="history-value"><?php echo number_format($record['value'], 2); ?> kg</div>
-                            <div class="history-time"><?php echo date('g:i A - M j, Y', $record['timestamp']); ?></div>
-                        </div>
-                        <div>
-                            <?php
-                            $percentage = ($record['value'] / $weightCapacity) * 100;
-                            if ($percentage >= 80) {
-                                echo '<span class="badge bg-danger">Almost Full</span>';
-                            } elseif ($percentage >= 60) {
-                                echo '<span class="badge bg-warning text-dark">Filling</span>';
-                            } else {
-                                echo '<span class="badge bg-success">Normal</span>';
-                            }
-                            ?>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+                <p class="text-muted text-center py-4">Loading weight history...</p>
             </div>
         </div>
     </div>
@@ -546,12 +453,281 @@ body {
 </div>
 
 <script>
+let weightChart = null;
+const CAPACITY = 1; // 1 kg capacity
+let lastUpdateTime = 0;
+const UPDATE_INTERVAL = 1800000; // 30 minutes in milliseconds (30 * 60 * 1000)
+
 function closeWarning() {
     const popup = document.getElementById('warningPopup');
     const overlay = document.getElementById('warningOverlay');
     if (popup) popup.classList.remove('show');
     if (overlay) overlay.classList.remove('show');
 }
+
+function showWarning(percentage) {
+    const popup = document.getElementById('warningPopup');
+    const overlay = document.getElementById('warningOverlay');
+    const text = document.getElementById('warningText');
+    
+    text.textContent = `The bin is almost full (${percentage.toFixed(1)}%)!`;
+    popup.classList.add('show');
+    overlay.classList.add('show');
+}
+
+function updateWeightDisplay(weight, capacity) {
+    const percentage = (weight / capacity) * 100;
+    const fertilizer = weight * 0.5;
+    
+    // Update displays
+    document.getElementById('currentWeightDisplay').textContent = weight.toFixed(4) + ' kg';
+    document.getElementById('fertilizerDisplay').textContent = fertilizer.toFixed(3) + ' kg';
+    document.getElementById('capacityDisplay').textContent = capacity.toFixed(1);
+    document.getElementById('weightPercentText').textContent = percentage.toFixed(1) + '% Full';
+    document.getElementById('fertilizerMaxText').textContent = 'Maximum: ' + (capacity * 0.5).toFixed(1) + ' kg';
+    document.getElementById('fertilizerStat').textContent = fertilizer.toFixed(3) + ' kg';
+    
+    // Update progress bars
+    const weightProgress = document.getElementById('weightProgress');
+    weightProgress.style.width = Math.min(100, percentage) + '%';
+    
+    // Update colors based on percentage
+    if (percentage >= 80) {
+        weightProgress.style.background = 'linear-gradient(90deg, #ff6b6b, #ee5a6f)';
+        document.getElementById('warningBanner').style.display = 'block';
+        document.getElementById('warningBannerText').textContent = `The bin is reaching capacity (${percentage.toFixed(1)}%). Consider emptying soon.`;
+    } else if (percentage >= 60) {
+        weightProgress.style.background = 'linear-gradient(90deg, #ffd93d, #f6c23e)';
+        document.getElementById('warningBanner').style.display = 'none';
+    } else {
+        weightProgress.style.background = 'linear-gradient(90deg, #6fcf97, #27ae60)';
+        document.getElementById('warningBanner').style.display = 'none';
+    }
+    
+    // Update fertilizer progress
+    const fertilizerProgress = document.getElementById('fertilizerProgress');
+    fertilizerProgress.style.width = Math.min(100, (fertilizer / (capacity * 0.5)) * 100) + '%';
+    fertilizerProgress.style.background = 'linear-gradient(90deg, #ffd93d, #f6c23e)';
+}
+
+function updateStatistics(historyData) {
+    if (historyData.length === 0) return;
+    
+    const weights = historyData.map(item => item.value);
+    const maxWeight = Math.max(...weights);
+    const minWeight = Math.min(...weights);
+    const avgWeight = weights.reduce((a, b) => a + b, 0) / weights.length;
+    
+    document.getElementById('maxWeightStat').textContent = maxWeight.toFixed(4) + ' kg';
+    document.getElementById('avgWeightStat').textContent = avgWeight.toFixed(4) + ' kg';
+    document.getElementById('minWeightStat').textContent = minWeight.toFixed(4) + ' kg';
+}
+
+function getRelativeTimeLabel(index, total) {
+    const minutesAgo = (total - index - 1) * 2; // Assuming ~2 minutes between readings
+    
+    if (minutesAgo === 0) return 'Just now';
+    if (minutesAgo < 60) return `${minutesAgo} min ago`;
+    
+    const hoursAgo = Math.floor(minutesAgo / 60);
+    if (hoursAgo < 24) return `${hoursAgo} hour${hoursAgo > 1 ? 's' : ''} ago`;
+    
+    const daysAgo = Math.floor(hoursAgo / 24);
+    return `${daysAgo} day${daysAgo > 1 ? 's' : ''} ago`;
+}
+
+function updateHistoryDisplay(historyData) {
+    const container = document.getElementById('historyContainer');
+    
+    if (historyData.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center py-4">No history data available</p>';
+        return;
+    }
+    
+    // Take last 20 readings
+    const recent = historyData.slice(0, 20);
+    
+    container.innerHTML = recent.map((record, index) => {
+        const percentage = (record.value / CAPACITY) * 100;
+        let badgeClass = 'success';
+        let badgeText = 'Normal';
+        
+        if (percentage >= 80) {
+            badgeClass = 'danger';
+            badgeText = 'Almost Full';
+        } else if (percentage >= 60) {
+            badgeClass = 'warning text-dark';
+            badgeText = 'Filling';
+        }
+        
+        const timeLabel = getRelativeTimeLabel(index, recent.length);
+        
+        return `
+            <div class="history-item">
+                <div>
+                    <div class="history-value">${record.value.toFixed(4)} kg</div>
+                    <div class="history-time">Reading #${record.sequenceId} - ${timeLabel}</div>
+                </div>
+                <div>
+                    <span class="badge bg-${badgeClass}">${badgeText}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function updateChart(historyData) {
+    const ctx = document.getElementById('weightChart').getContext('2d');
+    
+    // Prepare data - use sequence for X axis
+    const labels = historyData.map((item, index) => {
+        return `Reading ${item.sequenceId}`;
+    });
+    
+    const weights = historyData.map(item => item.value);
+    
+    // Create gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(76, 175, 80, 0.3)');
+    gradient.addColorStop(1, 'rgba(76, 175, 80, 0.05)');
+    
+    // Destroy existing chart if it exists
+    if (weightChart) {
+        weightChart.destroy();
+    }
+    
+    // Create new chart
+    weightChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels.reverse(),
+            datasets: [{
+                label: 'Weight (kg)',
+                data: weights.reverse(),
+                borderColor: '#4CAF50',
+                backgroundColor: gradient,
+                borderWidth: 3,
+                tension: 0.4,
+                fill: true,
+                pointRadius: 4,
+                pointHoverRadius: 7,
+                pointBackgroundColor: '#4CAF50',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    padding: 12,
+                    titleFont: { size: 14 },
+                    bodyFont: { size: 13 },
+                    callbacks: {
+                        label: function(context) {
+                            return 'Weight: ' + context.parsed.y.toFixed(4) + ' kg';
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    min: 0,
+                    max: CAPACITY,
+                    ticks: {
+                        callback: function(value) {
+                            return value.toFixed(2) + ' kg';
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.05)'
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
+    
+    document.getElementById('readingsCount').textContent = `(Last ${historyData.length} Readings)`;
+}
+
+// Initialize weight monitoring with Firebase
+window.initializeWeightMonitoring = function() {
+    console.log('⚖️ Initializing weight monitoring...');
+    
+    const database = window.firebaseDatabase;
+    
+    // Listen to latest weight (real-time, but we'll throttle updates)
+    const weightRef = window.firebaseRef(database, 'sensors/weight/latest');
+    window.firebaseOnValue(weightRef, (snapshot) => {
+        const now = Date.now();
+        
+        // Only update display every 30 minutes
+        if (now - lastUpdateTime < UPDATE_INTERVAL) {
+            console.log('⏱️ Skipping update (less than 30 minutes since last update)');
+            return;
+        }
+        
+        lastUpdateTime = now;
+        
+        const weight = snapshot.val() || 0;
+        console.log('⚖️ Weight updated:', weight);
+        
+        updateWeightDisplay(weight, CAPACITY);
+        
+        // Show warning if needed
+        const percentage = (weight / CAPACITY) * 100;
+        if (percentage >= 80) {
+            showWarning(percentage);
+        }
+    });
+    
+    // Listen to weight history (limited to last 50 readings)
+    const historyQuery = window.firebaseQuery(
+        window.firebaseRef(database, 'sensors/weight/history'),
+        window.firebaseLimitToLast(50)
+    );
+    
+    window.firebaseOnValue(historyQuery, (snapshot) => {
+        const historyData = [];
+        
+        if (snapshot.exists()) {
+            snapshot.forEach((childSnapshot) => {
+                const sequenceId = parseInt(childSnapshot.key); // This is just a sequence number, not a timestamp
+                const value = childSnapshot.val();
+                
+                historyData.push({
+                    sequenceId: sequenceId,
+                    value: value
+                });
+            });
+        }
+        
+        // Sort by sequence ID (newest first)
+        historyData.sort((a, b) => b.sequenceId - a.sequenceId);
+        
+        console.log('📊 Weight history loaded:', historyData.length, 'readings');
+        
+        // Update statistics
+        updateStatistics(historyData);
+        
+        // Update history display
+        updateHistoryDisplay(historyData);
+        
+        // Update chart
+        updateChart(historyData);
+    });
+    
+    console.log('✅ Weight monitoring initialized');
+};
 
 // Smooth progress bar animation on load
 window.addEventListener('load', () => {
@@ -563,125 +739,6 @@ window.addEventListener('load', () => {
         }, 100);
     });
 });
-
-// Prepare chart data
-const historyData = <?php echo json_encode($historyData); ?>;
-const labels = historyData.map(item => {
-    const date = new Date(item.timestamp * 1000);
-    return date.toLocaleString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        hour: '2-digit', 
-        minute: '2-digit' 
-    });
-});
-const weights = historyData.map(item => item.value);
-
-// Create weight chart
-const ctx = document.getElementById('weightChart').getContext('2d');
-const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-gradient.addColorStop(0, 'rgba(76, 175, 80, 0.3)');
-gradient.addColorStop(1, 'rgba(76, 175, 80, 0.05)');
-
-const weightChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: labels.reverse(),
-        datasets: [{
-            label: 'Weight (kg)',
-            data: weights.reverse(),
-            borderColor: '#4CAF50',
-            backgroundColor: gradient,
-            borderWidth: 3,
-            tension: 0.4,
-            fill: true,
-            pointRadius: 4,
-            pointHoverRadius: 7,
-            pointBackgroundColor: '#4CAF50',
-            pointBorderColor: '#fff',
-            pointBorderWidth: 2
-        }]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-            legend: { display: false },
-            tooltip: {
-                backgroundColor: 'rgba(0,0,0,0.8)',
-                padding: 12,
-                titleFont: { size: 14 },
-                bodyFont: { size: 13 },
-                callbacks: {
-                    label: function(context) {
-                        return 'Weight: ' + context.parsed.y.toFixed(2) + ' kg';
-                    }
-                }
-            }
-        },
-        scales: {
-            y: {
-                beginAtZero: true,
-                min: 0,
-                max: <?php echo $weightCapacity; ?>,
-                ticks: {
-                    callback: function(value) {
-                        return value + ' kg';
-                    }
-                },
-                grid: {
-                    color: 'rgba(0,0,0,0.05)'
-                }
-            },
-            x: {
-                grid: {
-                    display: false
-                }
-            }
-        }
-    }
-});
-
-// Real-time weight updates
-async function fetchLatestWeight() {
-    try {
-        const res = await fetch('api/get_latest.php', { cache: 'no-store' });
-        const data = await res.json();
-        
-        if (data && data.latest && data.latest.weight !== undefined) {
-            const weight = parseFloat(data.latest.weight);
-            const capacity = <?php echo $weightCapacity; ?>;
-            const fertilizer = weight * 0.5;
-            const percentage = (weight / capacity) * 100;
-            
-            // Update displays
-            document.getElementById('currentWeightDisplay').textContent = weight.toFixed(2) + ' kg';
-            document.getElementById('fertilizerDisplay').textContent = fertilizer.toFixed(1) + ' kg';
-            
-            // Update progress bars
-            const weightProgress = document.getElementById('weightProgress');
-            weightProgress.style.width = Math.min(100, percentage) + '%';
-            
-            // Update colors based on percentage
-            if (percentage >= 80) {
-                weightProgress.style.background = 'linear-gradient(90deg, #ff6b6b, #ee5a6f)';
-            } else if (percentage >= 60) {
-                weightProgress.style.background = 'linear-gradient(90deg, #ffd93d, #f6c23e)';
-            } else {
-                weightProgress.style.background = 'linear-gradient(90deg, #6fcf97, #27ae60)';
-            }
-            
-            // Update fertilizer progress
-            const fertilizerProgress = document.getElementById('fertilizerProgress');
-            fertilizerProgress.style.width = Math.min(100, (fertilizer / (capacity * 0.5)) * 100) + '%';
-        }
-    } catch (e) {
-        console.error('Error fetching weight:', e);
-    }
-}
-
-// Update every 5 seconds
-setInterval(fetchLatestWeight, 5000);
 </script>
 
 </body>

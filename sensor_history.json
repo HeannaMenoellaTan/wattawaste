@@ -1,46 +1,41 @@
 {
-  "gas": {
-    "latest": { "value": 120, "timestamp": 1734567890 },
-    "history": {
-      "gas_1734567800": { "value": 115, "timestamp": 1734567800 },
-      "gas_1734567850": { "value": 118, "timestamp": 1734567850 },
-      "gas_1734567890": { "value": 120, "timestamp": 1734567890 }
-    }
-  },
-  "humidity": {
-    "latest": { "value": 55.0, "timestamp": 1734567890 },
-    "history": {
-      "hum_1734567800": { "value": 53.0, "timestamp": 1734567800 },
-      "hum_1734567850": { "value": 54.0, "timestamp": 1734567850 },
-      "hum_1734567890": { "value": 55.0, "timestamp": 1734567890 }
-    }
-  },
-  "ph": {
-    "latest": { "value": 7.2, "timestamp": 1734567890 },
-    "history": {
-      "ph_1734567800": { "value": 7.1, "timestamp": 1734567800 },
-      "ph_1734567850": { "value": 7.15, "timestamp": 1734567850 },
-      "ph_1734567890": { "value": 7.2, "timestamp": 1734567890 }
-    }
-  },
-  "temperature": {
-    "latest": { "value": 45.2, "timestamp": 1734567890 },
-    "history": {
-      "temp_1734567800": { "value": 44.5, "timestamp": 1734567800 },
-      "temp_1734567850": { "value": 45.0, "timestamp": 1734567850 },
-      "temp_1734567890": { "value": 45.2, "timestamp": 1734567890 }
-    }
-  },
-  "weight": {
-    "latest": { 
-      "value": 15.5, 
-      "capacity": 50,
-      "timestamp": 1734567890 
+  "sensors": {
+    "temperature": {
+      "latest": 25.0,
+      "history": {
+        "1704067200000": 25.0
+      }
     },
-    "history": {
-      "weight_1734567800": { "value": 14.0, "timestamp": 1734567800 },
-      "weight_1734567850": { "value": 14.8, "timestamp": 1734567850 },
-      "weight_1734567890": { "value": 15.5, "timestamp": 1734567890 }
+    "humidity": {
+      "latest": 50.0,
+      "history": {
+        "1704067200000": 50.0
+      }
+    },
+    "gas": {
+      "latest": 100.0,
+      "history": {
+        "1704067200000": 100.0
+      }
+    },
+    "ph": {
+      "latest": 7.0,
+      "history": {
+        "1704067200000": 7.0
+      }
+    },
+    "weight": {
+      "latest": 0.0,
+      "history": {
+        "1704067200000": 0.0
+      }
+    }
+  },
+  "controls": {
+    "motor": {
+      "command": false,
+      "status": "stopped",
+      "startTime": 0
     }
   }
 }

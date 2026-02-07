@@ -2,11 +2,21 @@
 // Get current page filename
 $current_page = basename($_SERVER['PHP_SELF']);
 
-// Check if user is admin (if check_role.php exists)
+// Define isCurrentUserAdmin function directly in this file
+if (!function_exists('isCurrentUserAdmin')) {
+    function isCurrentUserAdmin() {
+        // Don't start session here - it should already be started
+        // Just check the session variable
+        return isset($_SESSION['role']) && strtolower($_SESSION['role']) === 'admin';
+    }
+}
+
+// Check if user is admin
 $is_admin = false;
-if (file_exists('check_role.php')) {
-    require_once 'check_role.php';
+try {
     $is_admin = isCurrentUserAdmin();
+} catch (Exception $e) {
+    $is_admin = false;
 }
 ?>
 
@@ -71,7 +81,7 @@ if (file_exists('check_role.php')) {
             </a>
         </li>
         <li>
-            <a href="user_management.php" class="<?php echo $current_page == 'user_management.php' ? 'active' : ''; ?>">
+            <a href="admin_user.php" class="<?php echo $current_page == 'admin_user.php' ? 'active' : ''; ?>">
                 <i class="fas fa-users-cog"></i> User Management
             </a>
         </li>
@@ -201,6 +211,7 @@ if (file_exists('check_role.php')) {
     transition: 0.25s;
     display: flex;
     align-items: center;
+    text-decoration: none;
 }
 
 .sidebar .logout a i {

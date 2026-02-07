@@ -1,69 +1,7 @@
 <?php
-
-/** 
- * 1. ✅ Load Firebase
- */
+// Minimal PHP - just for auth check and page structure
+// All data will be fetched from Firebase via JavaScript
 require_once 'firebase_config.php';
-$database = getDatabase();
-
-/**
- * 2. 🔥 Fetch latest humidity value from Firebase
- */
-$firebaseHumidity = $database->getReference("sensors/humidity/latest/value")->getValue();
-$firebaseTimestamp = $database->getReference("sensors/humidity/latest/timestamp")->getValue();
-$humidity = $firebaseHumidity ?? 0;
-$lastUpdate = $firebaseTimestamp ?? time();
-
-/**
- * 3. 📊 Fetch humidity history from Firebase
- */
-$historyRef = $database->getReference("sensors/humidity/history");
-$historySnapshot = $historyRef->getSnapshot();
-
-$historyData = [];
-if ($historySnapshot->exists()) {
-    foreach ($historySnapshot->getValue() as $key => $item) {
-        $historyData[] = [
-            'timestamp' => $item['timestamp'] ?? time(),
-            'value' => $item['value'] ?? 0
-        ];
-    }
-}
-
-// Sort by timestamp (newest first) and limit to 50
-usort($historyData, function($a, $b) {
-    return $b['timestamp'] - $a['timestamp'];
-});
-$historyData = array_slice($historyData, 0, 50);
-
-/**
- * 4. 💧 Humidity Status Classification
- */
-if ($humidity >= 70) {
-    $humidityStatus = 'Critical (Too Wet)';
-    $statusClass = 'crit';
-    $statusDesc = 'Humidity is too high. Risk of anaerobic conditions.';
-} elseif ($humidity >= 61) {
-    $humidityStatus = 'Optimal';
-    $statusClass = 'ok';
-    $statusDesc = 'Perfect moisture level for composting.';
-} else {
-    $humidityStatus = 'Warning (Too Dry)';
-    $statusClass = 'warn';
-    $statusDesc = 'Humidity is below optimal. May slow decomposition.';
-}
-
-// Calculate statistics
-$avgHumidity = 0;
-$maxHumidity = 0;
-$minHumidity = 100;
-if (!empty($historyData)) {
-    $humidities = array_column($historyData, 'value');
-    $avgHumidity = array_sum($humidities) / count($humidities);
-    $maxHumidity = max($humidities);
-    $minHumidity = min($humidities);
-}
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -76,10 +14,11 @@ if (!empty($historyData)) {
 <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<!-- Firebase Auth -->
+<!-- Firebase Auth and Database -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import { getDatabase, ref, onValue, query, limitToLast } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
 const firebaseConfig = {
     apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
@@ -94,6 +33,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const database = getDatabase(app);
 
 onAuthStateChanged(auth, (user) => {
     if (!user) {
@@ -103,10 +43,18 @@ onAuthStateChanged(auth, (user) => {
         console.log('✅ User authenticated:', user.email || user.phoneNumber);
         sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
         sessionStorage.setItem('userId', user.uid);
+        
+        // Initialize humidity monitoring after authentication
+        window.initializeHumidityMonitoring();
     }
 });
 
 window.firebaseAuth = auth;
+window.firebaseDatabase = database;
+window.firebaseRef = ref;
+window.firebaseOnValue = onValue;
+window.firebaseQuery = query;
+window.firebaseLimitToLast = limitToLast;
 </script>
 
 <?php include_once 'notif_bell.php'; ?>
@@ -308,15 +256,15 @@ body {
     <div class="row g-4 mb-4">
         <div class="col-lg-8">
             <div class="humidity-hero">
-                <div class="humidity-display-large" id="humidityDisplay"><?php echo number_format($humidity, 1); ?>%</div>
-                <div class="status-badge-large <?php echo $statusClass; ?>" id="statusBadge">
-                    <?php echo $humidityStatus; ?>
+                <div class="humidity-display-large" id="humidityDisplay">--%</div>
+                <div class="status-badge-large ok" id="statusBadge">
+                    Loading...
                 </div>
-                <div class="mt-3 small" style="opacity: 0.9; position: relative; z-index: 1;">
-                    <?php echo $statusDesc; ?>
+                <div class="mt-3 small" style="opacity: 0.9; position: relative; z-index: 1;" id="statusDesc">
+                    Fetching humidity data from sensors...
                 </div>
-                <div class="mt-2 small" style="opacity: 0.8; position: relative; z-index: 1;">
-                    Last updated: <?php echo date('g:i A - M j, Y', $lastUpdate); ?>
+                <div class="mt-2 small" style="opacity: 0.8; position: relative; z-index: 1;" id="lastUpdateText">
+                    Last updated: --
                 </div>
             </div>
         </div>
@@ -325,7 +273,7 @@ body {
             <div class="card p-4 h-100 d-flex align-items-center justify-content-center">
                 <h6 class="text-center mb-3">Moisture Level</h6>
                 <div class="droplet-visual">
-                    <div class="droplet-indicator" id="dropletIndicator"></div>
+                    <div class="droplet-indicator" id="dropletIndicator" style="height: 0%;"></div>
                 </div>
                 <div class="mt-3 text-center small-muted">
                     <div><span style="color: #ef4444;">●</span> ≥70% Critical</div>
@@ -336,34 +284,36 @@ body {
         </div>
     </div>
 
-    <?php if ($humidity < 40 || $humidity >= 70): ?>
-    <div class="alert-custom <?php echo $humidity >= 70 ? 'critical' : 'warning'; ?> mb-4">
+    <div class="alert-custom critical mb-4" id="criticalBanner" style="display: none;">
         <i class="fas fa-exclamation-triangle me-2"></i>
-        <strong><?php echo $humidity >= 70 ? 'Critical' : 'Warning'; ?>:</strong> 
-        Humidity is <?php echo $humidity >= 70 ? 'too high. Risk of anaerobic conditions and odor.' : 'too low. May slow decomposition process.'; ?>
+        <strong>Critical:</strong> Humidity is too high. Risk of anaerobic conditions and odor.
     </div>
-    <?php endif; ?>
+
+    <div class="alert-custom warning mb-4" id="warningBanner" style="display: none;">
+        <i class="fas fa-exclamation-triangle me-2"></i>
+        <strong>Warning:</strong> Humidity is too low. May slow decomposition process.
+    </div>
 
     <!-- Statistics Cards -->
     <div class="row g-4 mb-4">
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-tint text-danger mb-2" style="font-size: 32px;"></i>
-                <div class="stat-value"><?php echo number_format($maxHumidity, 1); ?>%</div>
+                <div class="stat-value" id="maxHumidityStat">--%</div>
                 <div class="stat-label">Maximum Humidity</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-chart-line text-success mb-2" style="font-size: 32px;"></i>
-                <div class="stat-value"><?php echo number_format($avgHumidity, 1); ?>%</div>
+                <div class="stat-value" id="avgHumidityStat">--%</div>
                 <div class="stat-label">Average Humidity</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-droplet text-info mb-2" style="font-size: 32px;"></i>
-                <div class="stat-value"><?php echo number_format($minHumidity, 1); ?>%</div>
+                <div class="stat-value" id="minHumidityStat">--%</div>
                 <div class="stat-label">Minimum Humidity</div>
             </div>
         </div>
@@ -375,7 +325,7 @@ body {
             <div class="card p-4">
                 <h5 class="mb-3">
                     <i class="fas fa-chart-area text-primary me-2"></i>
-                    Humidity Trend (Last <?php echo count($historyData); ?> Readings)
+                    Humidity Trend <span id="readingsCount">(Loading...)</span>
                 </h5>
                 <canvas id="humidityChart" style="max-height: 350px;"></canvas>
             </div>
@@ -391,30 +341,7 @@ body {
                     Recent Humidity Readings
                 </h5>
                 <div id="historyContainer" style="max-height: 500px; overflow-y: auto;">
-                    <?php if (empty($historyData)): ?>
-                        <p class="text-muted text-center py-4">No history data available</p>
-                    <?php else: ?>
-                        <?php foreach (array_slice($historyData, 0, 20) as $record): ?>
-                        <div class="history-item">
-                            <div>
-                                <div class="history-value"><?php echo number_format($record['value'], 1); ?>%</div>
-                                <div class="history-time"><?php echo date('g:i A - M j, Y', $record['timestamp']); ?></div>
-                            </div>
-                            <div>
-                                <?php
-                                $val = $record['value'];
-                                if ($val >= 70) {
-                                    echo '<span class="badge bg-danger">Critical</span>';
-                                } elseif ($val >= 61) {
-                                    echo '<span class="badge bg-success">Optimal</span>';
-                                } else {
-                                    echo '<span class="badge bg-warning">Warning</span>';
-                                }
-                                ?>
-                            </div>
-                        </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                    <p class="text-muted text-center py-4">Loading humidity history...</p>
                 </div>
             </div>
         </div>
@@ -424,6 +351,10 @@ body {
 </div>
 
 <script>
+let humidityChart = null;
+let lastUpdateTime = 0;
+const UPDATE_INTERVAL = 1800000; // 30 minutes in milliseconds (30 * 60 * 1000)
+
 // Update droplet visual indicator
 function updateDropletIndicator(humidity) {
     const indicator = document.getElementById('dropletIndicator');
@@ -431,120 +362,287 @@ function updateDropletIndicator(humidity) {
     indicator.style.height = percentage + '%';
 }
 
-// Initialize with PHP value
-updateDropletIndicator(<?php echo $humidity; ?>);
-
-// Prepare chart data
-const historyData = <?php echo json_encode($historyData); ?>;
-const labels = historyData.map(item => {
-    const date = new Date(item.timestamp * 1000);
-    return date.toLocaleString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        hour: '2-digit', 
-        minute: '2-digit' 
-    });
-});
-const humidities = historyData.map(item => item.value);
-
-// Create humidity chart
-const ctx = document.getElementById('humidityChart').getContext('2d');
-const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-gradient.addColorStop(0, 'rgba(0, 180, 216, 0.3)');
-gradient.addColorStop(1, 'rgba(72, 202, 228, 0.05)');
-
-const humidityChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: labels,
-        datasets: [{
-            label: 'Humidity (%)',
-            data: humidities,
-            borderColor: '#00b4d8',
-            backgroundColor: gradient,
-            borderWidth: 3,
-            tension: 0.4,
-            fill: true,
-            pointRadius: 3,
-            pointHoverRadius: 6,
-            pointBackgroundColor: '#00b4d8',
-            pointBorderColor: '#fff',
-            pointBorderWidth: 2
-        }]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-            legend: { display: false },
-            tooltip: {
-                backgroundColor: 'rgba(0,0,0,0.8)',
-                padding: 12,
-                titleFont: { size: 14 },
-                bodyFont: { size: 13 },
-                callbacks: {
-                    label: function(context) {
-                        return 'Humidity: ' + context.parsed.y.toFixed(1) + '%';
-                    }
-                }
-            }
-        },
-        scales: {
-            y: {
-                beginAtZero: true,
-                min: 0,
-                max: 100,
-                ticks: {
-                    callback: function(value) {
-                        return value + '%';
-                    }
-                },
-                grid: {
-                    color: 'rgba(0,0,0,0.05)'
-                }
-            },
-            x: {
-                grid: {
-                    display: false
-                }
-            }
-        }
-    }
-});
-
-// Real-time updates
-async function fetchLatestHumidity() {
-    try {
-        const res = await fetch('api/get_latest.php', { cache: 'no-store' });
-        const { latest } = await res.json();
-        
-        if (latest && latest.humidity !== undefined) {
-            const humidity = parseFloat(latest.humidity);
-            document.getElementById('humidityDisplay').textContent = humidity.toFixed(1) + '%';
-            updateDropletIndicator(humidity);
-            
-            // Update status badge
-            const badge = document.getElementById('statusBadge');
-            badge.classList.remove('ok', 'warn', 'crit');
-            
-            if (humidity >= 70) {
-                badge.classList.add('crit');
-                badge.textContent = 'Critical (Too Wet)';
-            } else if (humidity >= 61) {
-                badge.classList.add('ok');
-                badge.textContent = 'Optimal';
-            } else {
-                badge.classList.add('warn');
-                badge.textContent = 'Warning (Too Dry)';
-            }
-        }
-    } catch (e) {
-        console.error('Error fetching humidity:', e);
+// Get humidity status
+function getHumidityStatus(humidity) {
+    if (humidity >= 70) {
+        return {
+            status: 'Critical (Too Wet)',
+            statusClass: 'crit',
+            desc: 'Humidity is too high. Risk of anaerobic conditions.'
+        };
+    } else if (humidity >= 61) {
+        return {
+            status: 'Optimal',
+            statusClass: 'ok',
+            desc: 'Perfect moisture level for composting.'
+        };
+    } else {
+        return {
+            status: 'Warning (Too Dry)',
+            statusClass: 'warn',
+            desc: 'Humidity is below optimal. May slow decomposition.'
+        };
     }
 }
 
-// Update every 3 seconds
-setInterval(fetchLatestHumidity, 3000);
+// Update humidity display
+function updateHumidityDisplay(humidity) {
+    const status = getHumidityStatus(humidity);
+    
+    // Update display
+    document.getElementById('humidityDisplay').textContent = humidity.toFixed(1) + '%';
+    document.getElementById('statusBadge').textContent = status.status;
+    document.getElementById('statusDesc').textContent = status.desc;
+    document.getElementById('lastUpdateText').textContent = 'Last updated: ' + new Date().toLocaleString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+    });
+    
+    // Update droplet indicator
+    updateDropletIndicator(humidity);
+    
+    // Update badge classes
+    const badge = document.getElementById('statusBadge');
+    badge.classList.remove('ok', 'warn', 'crit');
+    badge.classList.add(status.statusClass);
+    
+    // Update warning banners
+    const criticalBanner = document.getElementById('criticalBanner');
+    const warningBanner = document.getElementById('warningBanner');
+    
+    if (humidity >= 70) {
+        criticalBanner.style.display = 'block';
+        warningBanner.style.display = 'none';
+    } else if (humidity < 40) {
+        criticalBanner.style.display = 'none';
+        warningBanner.style.display = 'block';
+    } else {
+        criticalBanner.style.display = 'none';
+        warningBanner.style.display = 'none';
+    }
+}
+
+// Update statistics
+function updateStatistics(historyData) {
+    if (historyData.length === 0) return;
+    
+    const humidities = historyData.map(item => item.value);
+    const maxHumidity = Math.max(...humidities);
+    const minHumidity = Math.min(...humidities);
+    const avgHumidity = humidities.reduce((a, b) => a + b, 0) / humidities.length;
+    
+    document.getElementById('maxHumidityStat').textContent = maxHumidity.toFixed(1) + '%';
+    document.getElementById('avgHumidityStat').textContent = avgHumidity.toFixed(1) + '%';
+    document.getElementById('minHumidityStat').textContent = minHumidity.toFixed(1) + '%';
+}
+
+// Update history display
+function updateHistoryDisplay(historyData) {
+    const container = document.getElementById('historyContainer');
+    
+    if (historyData.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center py-4">No history data available</p>';
+        return;
+    }
+    
+    // Take last 20 readings
+    const recent = historyData.slice(0, 20);
+    
+    container.innerHTML = recent.map(record => {
+        const val = record.value;
+        let badgeClass = 'success';
+        let badgeText = 'Optimal';
+        
+        if (val >= 70) {
+            badgeClass = 'danger';
+            badgeText = 'Critical';
+        } else if (val >= 61) {
+            badgeClass = 'success';
+            badgeText = 'Optimal';
+        } else {
+            badgeClass = 'warning';
+            badgeText = 'Warning';
+        }
+        
+        const date = new Date(record.timestamp);
+        const timeString = date.toLocaleString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+        
+        return `
+            <div class="history-item">
+                <div>
+                    <div class="history-value">${val.toFixed(1)}%</div>
+                    <div class="history-time">${timeString}</div>
+                </div>
+                <div>
+                    <span class="badge bg-${badgeClass}">${badgeText}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Update chart
+function updateChart(historyData) {
+    const ctx = document.getElementById('humidityChart').getContext('2d');
+    
+    // Prepare data
+    const labels = historyData.map(item => {
+        const date = new Date(item.timestamp);
+        return date.toLocaleString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
+    });
+    
+    const humidities = historyData.map(item => item.value);
+    
+    // Create gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(0, 180, 216, 0.3)');
+    gradient.addColorStop(1, 'rgba(72, 202, 228, 0.05)');
+    
+    // Destroy existing chart if it exists
+    if (humidityChart) {
+        humidityChart.destroy();
+    }
+    
+    // Create new chart
+    humidityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels.reverse(),
+            datasets: [{
+                label: 'Humidity (%)',
+                data: humidities.reverse(),
+                borderColor: '#00b4d8',
+                backgroundColor: gradient,
+                borderWidth: 3,
+                tension: 0.4,
+                fill: true,
+                pointRadius: 3,
+                pointHoverRadius: 6,
+                pointBackgroundColor: '#00b4d8',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    padding: 12,
+                    titleFont: { size: 14 },
+                    bodyFont: { size: 13 },
+                    callbacks: {
+                        label: function(context) {
+                            return 'Humidity: ' + context.parsed.y.toFixed(1) + '%';
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    min: 0,
+                    max: 100,
+                    ticks: {
+                        callback: function(value) {
+                            return value + '%';
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.05)'
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
+    
+    document.getElementById('readingsCount').textContent = `(Last ${historyData.length} Readings)`;
+}
+
+// Initialize humidity monitoring with Firebase
+window.initializeHumidityMonitoring = function() {
+    console.log('💧 Initializing humidity monitoring...');
+    
+    const database = window.firebaseDatabase;
+    
+    // Listen to latest humidity (real-time, but throttled to 30 minutes)
+    const humidityRef = window.firebaseRef(database, 'sensors/humidity/latest');
+    window.firebaseOnValue(humidityRef, (snapshot) => {
+        const now = Date.now();
+        
+        // Only update display every 30 minutes
+        if (now - lastUpdateTime < UPDATE_INTERVAL) {
+            console.log('⏱️ Skipping humidity update (less than 30 minutes since last update)');
+            return;
+        }
+        
+        lastUpdateTime = now;
+        
+        const humidity = snapshot.val() || 0;
+        console.log('💧 Humidity updated:', humidity);
+        
+        updateHumidityDisplay(humidity);
+    });
+    
+    // Listen to humidity history (limited to last 50 readings)
+    const historyQuery = window.firebaseQuery(
+        window.firebaseRef(database, 'sensors/humidity/history'),
+        window.firebaseLimitToLast(50)
+    );
+    
+    window.firebaseOnValue(historyQuery, (snapshot) => {
+        const historyData = [];
+        
+        if (snapshot.exists()) {
+            snapshot.forEach((childSnapshot) => {
+                const timestamp = parseInt(childSnapshot.key);
+                const value = childSnapshot.val();
+                
+                historyData.push({
+                    timestamp: timestamp,
+                    value: value
+                });
+            });
+        }
+        
+        // Sort by timestamp (newest first)
+        historyData.sort((a, b) => b.timestamp - a.timestamp);
+        
+        console.log('📊 Humidity history loaded:', historyData.length, 'readings');
+        
+        // Update statistics
+        updateStatistics(historyData);
+        
+        // Update history display
+        updateHistoryDisplay(historyData);
+        
+        // Update chart
+        updateChart(historyData);
+    });
+    
+    console.log('✅ Humidity monitoring initialized');
+};
 </script>
 
 </body>

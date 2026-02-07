@@ -9,6 +9,26 @@ require_once 'check_role.php';
 // Get current page
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php 
+        $titles = [
+            'admin_dashboard.php' => 'Admin Dashboard',
+            'admin_user.php' => 'User Management',
+            'index.php' => "Plant's Data",
+            'admin_settings.php' => 'System Settings'
+        ];
+        echo ($titles[$current_page] ?? 'Admin Panel') . ' - WattAWaste';
+    ?></title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
 * {
@@ -266,7 +286,55 @@ body {
     color: #FF6B00;
     font-size: 18px;
 }
+
+/* Content Wrapper */
+.admin-content {
+    /* Content from individual pages goes here */
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .admin-sidebar {
+        width: 200px;
+    }
+    
+    .admin-main {
+        margin-left: 200px;
+    }
+    
+    .admin-topbar {
+        flex-direction: column;
+        gap: 15px;
+    }
+}
 </style>
+
+<script>
+// Update DateTime
+function updateDateTime() {
+    const now = new Date();
+    const options = { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: true 
+    };
+    const dateTimeElement = document.getElementById('currentDateTime');
+    if (dateTimeElement) {
+        dateTimeElement.textContent = now.toLocaleDateString('en-US', options);
+    }
+}
+
+// Initialize on load
+document.addEventListener('DOMContentLoaded', function() {
+    updateDateTime();
+    setInterval(updateDateTime, 60000); // Update every minute
+});
+</script>
+</head>
+<body>
 
 <div class="admin-layout">
     <!-- Admin Sidebar -->
@@ -274,7 +342,7 @@ body {
         <!-- Logo Section -->
         <div class="admin-logo">
             <div class="logo-circle">
-                <img src="assets/images/logo.png" alt="WattAWaste" class="logo-icon" onerror="this.style.display='none'">
+                <img src="assets/images/logo.png" alt="WattAWaste" class="logo-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                 <i class="fas fa-recycle" style="font-size: 32px; color: #4CAF50; display: none;"></i>
             </div>
             <div class="logo-title">" WattAWaste " Aerobic and Anaerobic<br>Waste Hybrid Bin</div>
@@ -287,9 +355,9 @@ body {
                 <span>Admin Dashboard</span>
             </a>
 
-            <a href="user_management.php" class="admin-menu-item <?php echo $current_page == 'user_management.php' ? 'active' : ''; ?>">
+            <a href="admin_user.php" class="admin-menu-item <?php echo $current_page == 'admin_user.php' ? 'active' : ''; ?>">
                 <i class="fas fa-users"></i>
-                <span>Users</span>
+                <span>User Management</span>
             </a>
 
             <a href="index.php" class="admin-menu-item <?php echo $current_page == 'index.php' ? 'active' : ''; ?>">
@@ -323,7 +391,7 @@ body {
                     // Dynamic icon based on page
                     $icons = [
                         'admin_dashboard.php' => '📊',
-                        'user_management.php' => '👥',
+                        'admin_user.php' => '👥',
                         'index.php' => '🌱',
                         'admin_settings.php' => '⚙️'
                     ];
@@ -335,7 +403,7 @@ body {
                         <?php 
                         $titles = [
                             'admin_dashboard.php' => 'Admin Dashboard',
-                            'user_management.php' => "User's Information",
+                            'admin_user.php' => 'User Management',
                             'index.php' => "Plant's Data",
                             'admin_settings.php' => 'System Settings'
                         ];
@@ -362,7 +430,7 @@ body {
             </div>
         </div>
 
-        <!-- Security Notice (optional - shows on first page) -->
+        <!-- Security Notice (optional - shows on dashboard only) -->
         <?php if ($current_page == 'admin_dashboard.php'): ?>
         <div class="security-notice">
             <i class="fas fa-shield-alt"></i>
@@ -375,36 +443,3 @@ body {
 
         <!-- Page Content Goes Here -->
         <div class="admin-content">
-</div>
-</div>
-</div>
-
-<script>
-// Update DateTime
-function updateDateTime() {
-    const now = new Date();
-    const options = { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric', 
-        hour: '2-digit', 
-        minute: '2-digit',
-        second: '2-digit'
-    };
-    const dateTimeElement = document.getElementById('currentDateTime');
-    if (dateTimeElement) {
-        dateTimeElement.textContent = now.toLocaleString('en-US', options);
-    }
-}
-
-updateDateTime();
-setInterval(updateDateTime, 1000);
-
-// Log admin access
-console.log('🛡️ Admin Panel Loaded');
-console.log('User: <?php echo htmlspecialchars(getCurrentUsername()); ?>');
-console.log('Page: <?php echo $current_page; ?>');
-</script>
-
-<!-- Font Awesome -->
-<script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>

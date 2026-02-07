@@ -1,73 +1,7 @@
 <?php
-
-/** 
- * 1. ✅ Load Firebase
- */
+// Minimal PHP - just for auth check and page structure
+// All data will be fetched from Firebase via JavaScript
 require_once 'firebase_config.php';
-$database = getDatabase();
-
-/**
- * 2. 🔥 Fetch latest gas value from Firebase
- */
-$firebaseGas = $database->getReference("sensors/gas/latest/value")->getValue();
-$firebaseTimestamp = $database->getReference("sensors/gas/latest/timestamp")->getValue();
-$gas = $firebaseGas ?? 0;
-$lastUpdate = $firebaseTimestamp ?? time();
-
-/**
- * 3. 📊 Fetch gas history from Firebase
- */
-$historyRef = $database->getReference("sensors/gas/history");
-$historySnapshot = $historyRef->getSnapshot();
-
-$historyData = [];
-if ($historySnapshot->exists()) {
-    foreach ($historySnapshot->getValue() as $key => $item) {
-        $historyData[] = [
-            'timestamp' => $item['timestamp'] ?? time(),
-            'value' => $item['value'] ?? 0
-        ];
-    }
-}
-
-// Sort by timestamp (newest first) and limit to 50
-usort($historyData, function($a, $b) {
-    return $b['timestamp'] - $a['timestamp'];
-});
-$historyData = array_slice($historyData, 0, 50);
-
-/**
- * 4. 💨 Gas Status Classification
- */
-if ($gas >= 800) {
-    $gasStatus = 'Critical (Mixer Activated)';
-    $statusClass = 'crit';
-    $statusDesc = 'Gas level extremely high. Automatic mixer activation.';
-} elseif ($gas >= 600) {
-    $gasStatus = 'Warning (High)';
-    $statusClass = 'warn';
-    $statusDesc = 'Gas level rising. Monitor closely.';
-} elseif ($gas >= 200) {
-    $gasStatus = 'Optimal';
-    $statusClass = 'ok';
-    $statusDesc = 'Normal aerobic decomposition. Gas levels healthy.';
-} else {
-    $gasStatus = 'Below Range';
-    $statusClass = 'info';
-    $statusDesc = 'Gas production low. May indicate slow decomposition.';
-}
-
-// Calculate statistics
-$avgGas = 0;
-$maxGas = 0;
-$minGas = 1000;
-if (!empty($historyData)) {
-    $gases = array_column($historyData, 'value');
-    $avgGas = array_sum($gases) / count($gases);
-    $maxGas = max($gases);
-    $minGas = min($gases);
-}
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -80,10 +14,11 @@ if (!empty($historyData)) {
 <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<!-- Firebase Auth -->
+<!-- Firebase Auth and Database -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import { getDatabase, ref, onValue, query, limitToLast } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
 const firebaseConfig = {
     apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
@@ -98,6 +33,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const database = getDatabase(app);
 
 onAuthStateChanged(auth, (user) => {
     if (!user) {
@@ -107,10 +43,18 @@ onAuthStateChanged(auth, (user) => {
         console.log('✅ User authenticated:', user.email || user.phoneNumber);
         sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
         sessionStorage.setItem('userId', user.uid);
+        
+        // Initialize gas monitoring after authentication
+        window.initializeGasMonitoring();
     }
 });
 
 window.firebaseAuth = auth;
+window.firebaseDatabase = database;
+window.firebaseRef = ref;
+window.firebaseOnValue = onValue;
+window.firebaseQuery = query;
+window.firebaseLimitToLast = limitToLast;
 </script>
 
 <?php include_once 'notif_bell.php'; ?>
@@ -334,15 +278,15 @@ body {
     <div class="row g-4 mb-4">
         <div class="col-lg-8">
             <div class="gas-hero">
-                <div class="gas-display-large" id="gasDisplay"><?php echo number_format($gas, 0); ?> ppm</div>
-                <div class="status-badge-large <?php echo $statusClass; ?>" id="statusBadge">
-                    <?php echo $gasStatus; ?>
+                <div class="gas-display-large" id="gasDisplay">-- ppm</div>
+                <div class="status-badge-large ok" id="statusBadge">
+                    Loading...
                 </div>
-                <div class="mt-3 small" style="opacity: 0.9; position: relative; z-index: 1;">
-                    <?php echo $statusDesc; ?>
+                <div class="mt-3 small" style="opacity: 0.9; position: relative; z-index: 1;" id="statusDesc">
+                    Fetching gas data from sensors...
                 </div>
-                <div class="mt-2 small" style="opacity: 0.8; position: relative; z-index: 1;">
-                    Last updated: <?php echo date('g:i A - M j, Y', $lastUpdate); ?>
+                <div class="mt-2 small" style="opacity: 0.8; position: relative; z-index: 1;" id="lastUpdateText">
+                    Last updated: --
                 </div>
             </div>
         </div>
@@ -363,38 +307,36 @@ body {
         </div>
     </div>
 
-    <?php if ($gas >= 800): ?>
-    <div class="alert-custom critical mb-4">
+    <div class="alert-custom critical mb-4" id="criticalBanner" style="display: none;">
         <i class="fas fa-exclamation-triangle me-2"></i>
         <strong>Critical Alert:</strong> Gas levels dangerously high! Mixer should be activated immediately to improve aeration.
     </div>
-    <?php elseif ($gas >= 600): ?>
-    <div class="alert-custom warning mb-4">
+
+    <div class="alert-custom warning mb-4" id="warningBanner" style="display: none;">
         <i class="fas fa-exclamation-triangle me-2"></i>
         <strong>Warning:</strong> Gas levels are rising. Ensure proper ventilation and consider activating the mixer.
     </div>
-    <?php endif; ?>
 
     <!-- Statistics Cards -->
     <div class="row g-4 mb-4">
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-wind text-danger mb-2" style="font-size: 32px;"></i>
-                <div class="stat-value"><?php echo number_format($maxGas, 0); ?> ppm</div>
+                <div class="stat-value" id="maxGasStat">-- ppm</div>
                 <div class="stat-label">Maximum Gas Level</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-chart-line text-success mb-2" style="font-size: 32px;"></i>
-                <div class="stat-value"><?php echo number_format($avgGas, 0); ?> ppm</div>
+                <div class="stat-value" id="avgGasStat">-- ppm</div>
                 <div class="stat-label">Average Gas Level</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-smog text-info mb-2" style="font-size: 32px;"></i>
-                <div class="stat-value"><?php echo number_format($minGas, 0); ?> ppm</div>
+                <div class="stat-value" id="minGasStat">-- ppm</div>
                 <div class="stat-label">Minimum Gas Level</div>
             </div>
         </div>
@@ -406,7 +348,7 @@ body {
             <div class="card p-4">
                 <h5 class="mb-3">
                     <i class="fas fa-chart-area text-primary me-2"></i>
-                    Gas Level Trend (Last <?php echo count($historyData); ?> Readings)
+                    Gas Level Trend <span id="readingsCount">(Loading...)</span>
                 </h5>
                 <canvas id="gasChart" style="max-height: 350px;"></canvas>
             </div>
@@ -422,32 +364,7 @@ body {
                     Recent Gas Level Readings
                 </h5>
                 <div id="historyContainer" style="max-height: 500px; overflow-y: auto;">
-                    <?php if (empty($historyData)): ?>
-                        <p class="text-muted text-center py-4">No history data available</p>
-                    <?php else: ?>
-                        <?php foreach (array_slice($historyData, 0, 20) as $record): ?>
-                        <div class="history-item">
-                            <div>
-                                <div class="history-value"><?php echo number_format($record['value'], 0); ?> ppm</div>
-                                <div class="history-time"><?php echo date('g:i A - M j, Y', $record['timestamp']); ?></div>
-                            </div>
-                            <div>
-                                <?php
-                                $val = $record['value'];
-                                if ($val >= 800) {
-                                    echo '<span class="badge bg-danger">Critical</span>';
-                                } elseif ($val >= 600) {
-                                    echo '<span class="badge bg-warning">Warning</span>';
-                                } elseif ($val >= 200) {
-                                    echo '<span class="badge bg-success">Optimal</span>';
-                                } else {
-                                    echo '<span class="badge bg-info">Below Range</span>';
-                                }
-                                ?>
-                            </div>
-                        </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                    <p class="text-muted text-center py-4">Loading gas history...</p>
                 </div>
             </div>
         </div>
@@ -457,119 +374,297 @@ body {
 </div>
 
 <script>
-// Prepare chart data
-const historyData = <?php echo json_encode($historyData); ?>;
-const labels = historyData.map(item => {
-    const date = new Date(item.timestamp * 1000);
-    return date.toLocaleString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        hour: '2-digit', 
-        minute: '2-digit' 
-    });
-});
-const gases = historyData.map(item => item.value);
+let gasChart = null;
+let lastUpdateTime = 0;
+const UPDATE_INTERVAL = 1800000; // 30 minutes in milliseconds (30 * 60 * 1000)
 
-// Create gas chart
-const ctx = document.getElementById('gasChart').getContext('2d');
-const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-gradient.addColorStop(0, 'rgba(255, 186, 8, 0.3)');
-gradient.addColorStop(1, 'rgba(244, 140, 6, 0.05)');
-
-const gasChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: labels,
-        datasets: [{
-            label: 'Gas Level (ppm)',
-            data: gases,
-            borderColor: '#ffba08',
-            backgroundColor: gradient,
-            borderWidth: 3,
-            tension: 0.4,
-            fill: true,
-            pointRadius: 3,
-            pointHoverRadius: 6,
-            pointBackgroundColor: '#ffba08',
-            pointBorderColor: '#fff',
-            pointBorderWidth: 2
-        }]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-            legend: { display: false },
-            tooltip: {
-                backgroundColor: 'rgba(0,0,0,0.8)',
-                padding: 12,
-                titleFont: { size: 14 },
-                bodyFont: { size: 13 },
-                callbacks: {
-                    label: function(context) {
-                        return 'Gas Level: ' + context.parsed.y.toFixed(0) + ' ppm';
-                    }
-                }
-            }
-        },
-        scales: {
-            y: {
-                beginAtZero: true,
-                min: 0,
-                max: 1000,
-                ticks: {
-                    callback: function(value) {
-                        return value + ' ppm';
-                    }
-                },
-                grid: {
-                    color: 'rgba(0,0,0,0.05)'
-                }
-            },
-            x: {
-                grid: {
-                    display: false
-                }
-            }
-        }
-    }
-});
-
-// Real-time updates
-async function fetchLatestGas() {
-    try {
-        const res = await fetch('api/get_latest.php', { cache: 'no-store' });
-        const { latest } = await res.json();
-        
-        if (latest && latest.gas !== undefined) {
-            const gas = parseFloat(latest.gas);
-            document.getElementById('gasDisplay').textContent = gas.toFixed(0) + ' ppm';
-            
-            // Update status badge
-            const badge = document.getElementById('statusBadge');
-            badge.classList.remove('ok', 'warn', 'crit', 'info');
-            
-            if (gas >= 800) {
-                badge.classList.add('crit');
-                badge.textContent = 'Critical (Mixer Activated)';
-            } else if (gas >= 600) {
-                badge.classList.add('warn');
-                badge.textContent = 'Warning (High)';
-            } else if (gas >= 200) {
-                badge.classList.add('ok');
-                badge.textContent = 'Optimal';
-            } else {
-                badge.classList.add('info');
-                badge.textContent = 'Below Range';
-            }
-        }
-    } catch (e) {
-        console.error('Error fetching gas:', e);
+// Get gas status
+function getGasStatus(gas) {
+    if (gas >= 800) {
+        return {
+            status: 'Critical (Mixer Activated)',
+            statusClass: 'crit',
+            desc: 'Gas level extremely high. Automatic mixer activation.'
+        };
+    } else if (gas >= 600) {
+        return {
+            status: 'Warning (High)',
+            statusClass: 'warn',
+            desc: 'Gas level rising. Monitor closely.'
+        };
+    } else if (gas >= 200) {
+        return {
+            status: 'Optimal',
+            statusClass: 'ok',
+            desc: 'Normal aerobic decomposition. Gas levels healthy.'
+        };
+    } else {
+        return {
+            status: 'Below Range',
+            statusClass: 'info',
+            desc: 'Gas production low. May indicate slow decomposition.'
+        };
     }
 }
 
-// Update every 3 seconds
-setInterval(fetchLatestGas, 3000);
+// Update gas display
+function updateGasDisplay(gas) {
+    const status = getGasStatus(gas);
+    
+    // Update display
+    document.getElementById('gasDisplay').textContent = gas.toFixed(0) + ' ppm';
+    document.getElementById('statusBadge').textContent = status.status;
+    document.getElementById('statusDesc').textContent = status.desc;
+    document.getElementById('lastUpdateText').textContent = 'Last updated: ' + new Date().toLocaleString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+    });
+    
+    // Update badge classes
+    const badge = document.getElementById('statusBadge');
+    badge.classList.remove('ok', 'warn', 'crit', 'info');
+    badge.classList.add(status.statusClass);
+    
+    // Update warning banners
+    const criticalBanner = document.getElementById('criticalBanner');
+    const warningBanner = document.getElementById('warningBanner');
+    
+    if (gas >= 800) {
+        criticalBanner.style.display = 'block';
+        warningBanner.style.display = 'none';
+    } else if (gas >= 600) {
+        criticalBanner.style.display = 'none';
+        warningBanner.style.display = 'block';
+    } else {
+        criticalBanner.style.display = 'none';
+        warningBanner.style.display = 'none';
+    }
+}
+
+// Update statistics
+function updateStatistics(historyData) {
+    if (historyData.length === 0) return;
+    
+    const gases = historyData.map(item => item.value);
+    const maxGas = Math.max(...gases);
+    const minGas = Math.min(...gases);
+    const avgGas = gases.reduce((a, b) => a + b, 0) / gases.length;
+    
+    document.getElementById('maxGasStat').textContent = maxGas.toFixed(0) + ' ppm';
+    document.getElementById('avgGasStat').textContent = avgGas.toFixed(0) + ' ppm';
+    document.getElementById('minGasStat').textContent = minGas.toFixed(0) + ' ppm';
+}
+
+// Update history display
+function updateHistoryDisplay(historyData) {
+    const container = document.getElementById('historyContainer');
+    
+    if (historyData.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center py-4">No history data available</p>';
+        return;
+    }
+    
+    // Take last 20 readings
+    const recent = historyData.slice(0, 20);
+    
+    container.innerHTML = recent.map(record => {
+        const val = record.value;
+        let badgeClass = 'success';
+        let badgeText = 'Optimal';
+        
+        if (val >= 800) {
+            badgeClass = 'danger';
+            badgeText = 'Critical';
+        } else if (val >= 600) {
+            badgeClass = 'warning';
+            badgeText = 'Warning';
+        } else if (val >= 200) {
+            badgeClass = 'success';
+            badgeText = 'Optimal';
+        } else {
+            badgeClass = 'info';
+            badgeText = 'Below Range';
+        }
+        
+        const date = new Date(record.timestamp);
+        const timeString = date.toLocaleString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+        
+        return `
+            <div class="history-item">
+                <div>
+                    <div class="history-value">${val.toFixed(0)} ppm</div>
+                    <div class="history-time">${timeString}</div>
+                </div>
+                <div>
+                    <span class="badge bg-${badgeClass}">${badgeText}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Update chart
+function updateChart(historyData) {
+    const ctx = document.getElementById('gasChart').getContext('2d');
+    
+    // Prepare data
+    const labels = historyData.map(item => {
+        const date = new Date(item.timestamp);
+        return date.toLocaleString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
+    });
+    
+    const gases = historyData.map(item => item.value);
+    
+    // Create gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(255, 186, 8, 0.3)');
+    gradient.addColorStop(1, 'rgba(244, 140, 6, 0.05)');
+    
+    // Destroy existing chart if it exists
+    if (gasChart) {
+        gasChart.destroy();
+    }
+    
+    // Create new chart
+    gasChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels.reverse(),
+            datasets: [{
+                label: 'Gas Level (ppm)',
+                data: gases.reverse(),
+                borderColor: '#ffba08',
+                backgroundColor: gradient,
+                borderWidth: 3,
+                tension: 0.4,
+                fill: true,
+                pointRadius: 3,
+                pointHoverRadius: 6,
+                pointBackgroundColor: '#ffba08',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    padding: 12,
+                    titleFont: { size: 14 },
+                    bodyFont: { size: 13 },
+                    callbacks: {
+                        label: function(context) {
+                            return 'Gas Level: ' + context.parsed.y.toFixed(0) + ' ppm';
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    min: 0,
+                    max: 1000,
+                    ticks: {
+                        callback: function(value) {
+                            return value + ' ppm';
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.05)'
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
+    
+    document.getElementById('readingsCount').textContent = `(Last ${historyData.length} Readings)`;
+}
+
+// Initialize gas monitoring with Firebase
+window.initializeGasMonitoring = function() {
+    console.log('💨 Initializing gas monitoring...');
+    
+    const database = window.firebaseDatabase;
+    
+    // Listen to latest gas (real-time, but throttled to 30 minutes)
+    const gasRef = window.firebaseRef(database, 'sensors/gas/latest');
+    window.firebaseOnValue(gasRef, (snapshot) => {
+        const now = Date.now();
+        
+        // Only update display every 30 minutes
+        if (now - lastUpdateTime < UPDATE_INTERVAL) {
+            console.log('⏱️ Skipping gas update (less than 30 minutes since last update)');
+            return;
+        }
+        
+        lastUpdateTime = now;
+        
+        const gas = snapshot.val() || 0;
+        console.log('💨 Gas updated:', gas);
+        
+        updateGasDisplay(gas);
+    });
+    
+    // Listen to gas history (limited to last 50 readings)
+    const historyQuery = window.firebaseQuery(
+        window.firebaseRef(database, 'sensors/gas/history'),
+        window.firebaseLimitToLast(50)
+    );
+    
+    window.firebaseOnValue(historyQuery, (snapshot) => {
+        const historyData = [];
+        
+        if (snapshot.exists()) {
+            snapshot.forEach((childSnapshot) => {
+                const timestamp = parseInt(childSnapshot.key);
+                const value = childSnapshot.val();
+                
+                historyData.push({
+                    timestamp: timestamp,
+                    value: value
+                });
+            });
+        }
+        
+        // Sort by timestamp (newest first)
+        historyData.sort((a, b) => b.timestamp - a.timestamp);
+        
+        console.log('📊 Gas history loaded:', historyData.length, 'readings');
+        
+        // Update statistics
+        updateStatistics(historyData);
+        
+        // Update history display
+        updateHistoryDisplay(historyData);
+        
+        // Update chart
+        updateChart(historyData);
+    });
+    
+    console.log('✅ Gas monitoring initialized');
+};
 </script>
 
 </body>

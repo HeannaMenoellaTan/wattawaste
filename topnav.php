@@ -106,16 +106,15 @@ $sensors = [
             ?>
         </div>
 
-        <!-- PROFILE DROPDOWN -->
+        <!-- PROFILE DROPDOWN (Settings and Logout removed) -->
         <div class="dropdown">
             <button class="btn btn-light dropdown-toggle p-0 border-0" type="button" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                 <img src="profile.jpg" alt="Profile" class="rounded-circle" width="40" height="40">
             </button>
             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
-                <li><a class="dropdown-item" href="#">Profile</a></li>
-                <li><a class="dropdown-item" href="#">Settings</a></li>
-                <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item text-danger" href="logout.php">Logout</a></li>
+                <li><a class="dropdown-item" href="profile.php">
+                    <i class="fas fa-user me-2"></i>Profile
+                </a></li>
             </ul>
         </div>
 
@@ -160,6 +159,21 @@ body {
 .faulty { font-size:14px; font-weight:600; color:#E65100; }
 .main {
     padding-top: 0;
+}
+
+/* Profile dropdown styling */
+#profileDropdown + .dropdown-menu .dropdown-item {
+    padding: 10px 16px;
+    transition: all 0.2s ease;
+}
+
+#profileDropdown + .dropdown-menu .dropdown-item:hover {
+    background: rgba(76, 175, 80, 0.1);
+    color: #2E7D32;
+}
+
+#profileDropdown + .dropdown-menu .dropdown-item i {
+    color: #4CAF50;
 }
 </style>
 
