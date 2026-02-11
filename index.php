@@ -344,7 +344,12 @@ window.initializeMixerControls = function() {
 </head>
 <body>
 
-<?php 
+<?php
+/**
+ * Enhanced Compost Stage Detection
+ * Replace the stage detection section in your index.php with this code
+ */
+
 require_once 'firebase_config.php';
 $database = getDatabase();
 
@@ -353,27 +358,74 @@ $firebaseHumidity = $database->getReference("sensors/humidity/latest")->getValue
 $firebaseGas      = $database->getReference("sensors/gas/latest")->getValue();
 $firebasePH       = $database->getReference("sensors/ph/latest")->getValue();
 $firebaseWeight   = $database->getReference("sensors/weight/latest")->getValue();
+$firebaseInitialWeight = $database->getReference("sensors/weight/initial")->getValue();
 
 $temp = $firebaseTemp ?? 0;
 $humidity = $firebaseHumidity ?? 0;
 $gas = $firebaseGas ?? 0;
 $ph = $firebasePH ?? 0;
-$capacity = 1; // Default capacity since not stored in Firebase
+$capacity = 100; // 100 kg maximum capacity
 $currentWeight = $firebaseWeight ?? 0;
+$initialWeight = $firebaseInitialWeight ?? $currentWeight;
+
+// Calculate weight loss percentage
+$weightLoss = 0;
+if ($initialWeight > 0) {
+    $weightLoss = (($initialWeight - $currentWeight) / $initialWeight) * 100;
+}
+
+// ========== ENHANCED STAGE DETECTION ==========
+// Now considers BOTH sensor readings AND weight decomposition
 
 if ($temp >= 45 && $temp <= 70 && $ph >= 6.5 && $ph <= 8.0 && $humidity >= 40 && $humidity <= 60) {
-  $stage = "Thermophilic Stage (Active Decomposition)";
-  $stage_desc = "The compost is in its most active phase. High heat indicates rapid microbial activity and pathogen destruction.";
-} elseif ($temp < 40 && $ph >= 7.0 && $ph <= 8.0 && $humidity <= 50 && $gas < 100) {
-  $stage = "Maturation Stage (Curing)";
-  $stage_desc = "Temperature is cooling down. Compost is stabilizing and turning into nutrient-rich humus.";
+    $stage = "Thermophilic Stage (Active Decomposition)";
+    $stage_desc = "The compost is in its most active phase. High heat indicates rapid microbial activity and pathogen destruction.";
+    
+    // Verify with weight
+    if ($weightLoss < 10) {
+        $stage_desc .= " <strong>Note:</strong> Weight loss is low for this stage. Decomposition just started.";
+    } elseif ($weightLoss >= 20) {
+        $stage_desc .= " <strong>Excellent!</strong> Significant weight loss (" . round($weightLoss, 1) . "%) shows active decomposition.";
+    }
+    
+} elseif ($temp < 40 && $temp >= 15 && $ph >= 7.0 && $ph <= 8.0 && $gas < 100) {
+    $stage = "Maturation Stage (Curing)";
+    $stage_desc = "Temperature is cooling down. Compost is stabilizing and turning into nutrient-rich humus.";
+    
+    // Verify with weight
+    if ($weightLoss >= 40) {
+        $stage_desc .= " <strong>Nearly ready!</strong> Weight has reduced by " . round($weightLoss, 1) . "%, indicating mature compost.";
+    } elseif ($weightLoss >= 25) {
+        $stage_desc .= " Weight reduced by " . round($weightLoss, 1) . "%. Getting close to finished compost.";
+    } else {
+        $stage_desc .= " <strong>Warning:</strong> Weight loss (" . round($weightLoss, 1) . "%) seems low for maturation stage. May need more time.";
+    }
+    
 } elseif ($temp >= 20 && $temp < 45 && $ph >= 5.5 && $ph < 6.5) {
-  $stage = "Mesophilic Stage (Initial)";
-  $stage_desc = "The composting process has just started. Microbes are breaking down simple organic materials.";
+    $stage = "Mesophilic Stage (Initial)";
+    $stage_desc = "The composting process has just started. Microbes are breaking down simple organic materials.";
+    
+    if ($weightLoss < 15) {
+        $stage_desc .= " Weight loss: " . round($weightLoss, 1) . "%. This is normal for the initial stage.";
+    }
+    
 } else {
-  $stage = "Transition Stage";
-  $stage_desc = "Readings suggest the compost is moving between phases. Continue monitoring sensor changes.";
+    $stage = "Transition Stage";
+    
+    // Use weight to provide better insight
+    if ($weightLoss >= 35) {
+        $stage_desc = "Despite mixed sensor readings, significant weight loss (" . round($weightLoss, 1) . "%) suggests advanced decomposition. Compost may be nearing readiness.";
+    } elseif ($weightLoss >= 20) {
+        $stage_desc = "Readings suggest the compost is moving between phases. Moderate weight loss (" . round($weightLoss, 1) . "%) shows good progress.";
+    } else {
+        $stage_desc = "Readings suggest the compost is moving between phases. Weight loss: " . round($weightLoss, 1) . "%. Continue monitoring.";
+    }
 }
+
+// Add weight loss indicator
+$weightLossIndicator = "<div class='mt-2 small-muted'><strong>Decomposition Progress:</strong> " . 
+                       round($weightLoss, 1) . "% weight reduction from initial " . 
+                       round($initialWeight, 2) . " kg</div>";
 
 include 'sideabr.php'; 
 ?>
@@ -504,105 +556,100 @@ function statusGlow(card, value, warnAt, critAt){
   else card.classList.add('ok-glow');
 }
 
+// ==================== COMPLETE REPLACEMENT FOR updateChart() FUNCTION ====================
+// Find the existing updateChart() function in your index.php and REPLACE IT ENTIRELY with this:
+
 function updateChart(){
+  console.log('🔄 Fetching prediction data...');
+  
   fetch('predict_readiness.php',{cache:'no-store'})
-    .then(r=>r.json()).then(data=>{
-      const readiness = clamp(parseFloat(data.readiness)||0,0,100);
-      chart.data.datasets[0].data=[readiness,100-readiness];
+    .then(r=>r.json())
+    .then(data=>{
+      console.log('📊 Full API Response:', data);
+      
+      // ========== UPDATE READINESS CHART ==========
+      const readiness = clamp(parseFloat(data.readiness)||0, 0, 100);
+      console.log('📈 Readiness score:', readiness);
+      
+      chart.data.datasets[0].data = [readiness, 100-readiness];
       chart.update();
       document.getElementById('readinessLabel').textContent = readiness.toFixed(1)+'%';
-      const statusEl=document.getElementById('readinessStatus');
-      const chartCard=document.getElementById('chartCard');
+      
+      const statusEl = document.getElementById('readinessStatus');
+      const chartCard = document.getElementById('chartCard');
       chartCard.classList.remove('ok-glow','warn-glow','crit-glow');
-      if(readiness>=90){ statusEl.textContent='🌿 Compost ready!'; chartCard.classList.add('ok-glow'); }
-      else if(readiness>=60){ statusEl.textContent='🌱 Almost ready'; chartCard.classList.add('warn-glow'); }
-      else if(readiness>=30){ statusEl.textContent='🔥 Heating up'; }
-      else { statusEl.textContent='🧤 Just started'; }
       
-      // Get weight and capacity from Firebase listeners (stored in global vars)
-      const weight = parseFloat(window.currentWeight) || 0;
-      const capacity = parseFloat(window.currentCapacity) || 1;
+      if(readiness >= 90){ 
+        statusEl.textContent = '🌿 Compost ready!'; 
+        chartCard.classList.add('ok-glow'); 
+      } else if(readiness >= 60){ 
+        statusEl.textContent = '🌱 Almost ready'; 
+        chartCard.classList.add('warn-glow'); 
+      } else if(readiness >= 30){ 
+        statusEl.textContent = '🔥 Heating up'; 
+      } else { 
+        statusEl.textContent = '🧤 Just started'; 
+      }
       
-      const predicted = (weight * (readiness/100) * 0.5);
-      const actual = readiness>=100 ? (weight*0.5) : 0;
-      document.getElementById('predictedOutput').textContent = predicted.toFixed(2)+' kg';
-      document.getElementById('actualOutput').textContent = readiness>=100 ? actual.toFixed(2)+' kg' : 'Not ready yet';
-      document.getElementById('fertBar').style.width = (capacity>0? clamp((predicted/capacity)*100,0,100):0) + '%';
-    }).catch(e => console.error('Chart update error:', e));
+      // ========== GET WEIGHT DATA FROM API ==========
+      const weightTracking = data.weight_tracking || {};
+      const currentWeight = parseFloat(weightTracking.current_weight) || 0;
+      const initialWeight = parseFloat(weightTracking.initial_weight) || 0;
+      const weightLossPercent = parseFloat(weightTracking.weight_loss_percent) || 0;
+      const weightLossKg = parseFloat(weightTracking.weight_loss_kg) || 0;
+      
+      console.log('⚖️ Weight Data:');
+      console.log('  - Initial:', initialWeight, 'kg');
+      console.log('  - Current:', currentWeight, 'kg');
+      console.log('  - Loss:', weightLossKg, 'kg ('+weightLossPercent+'%)');
+      
+      // ========== UPDATE FERTILIZER OUTPUT ==========
+      const fertilizerOutput = data.fertilizer_output || {};
+      const predictedOutput = parseFloat(fertilizerOutput.predicted_output_kg) || 0;
+      const actualOutput = parseFloat(fertilizerOutput.actual_output_kg) || 0;
+      const isReady = fertilizerOutput.is_ready || false;
+      
+      console.log('🌾 Fertilizer Output:');
+      console.log('  - Predicted:', predictedOutput, 'kg');
+      console.log('  - Actual:', actualOutput, 'kg');
+      console.log('  - Ready:', isReady);
+      
+      // Display predicted output
+      const predictedEl = document.getElementById('predictedOutput');
+      if (predictedEl) {
+        predictedEl.textContent = predictedOutput.toFixed(4) + ' kg';
+      }
+      
+      // Display actual output (only when ready)
+      const actualOutputEl = document.getElementById('actualOutput');
+      if (actualOutputEl) {
+        if (isReady) {
+          actualOutputEl.textContent = actualOutput.toFixed(4) + ' kg';
+          actualOutputEl.classList.remove('text-primary');
+          actualOutputEl.classList.add('text-success', 'fw-bold');
+        } else {
+          actualOutputEl.textContent = 'Not ready yet';
+          actualOutputEl.classList.remove('text-success', 'fw-bold');
+          actualOutputEl.classList.add('text-primary');
+        }
+      }
+      
+      // Update fertilizer bar
+      const fertPercentage = parseFloat(fertilizerOutput.fertilizer_percentage) || 0;
+      const fertBar = document.getElementById('fertBar');
+      if (fertBar) {
+        fertBar.style.width = clamp(fertPercentage, 0, 100) + '%';
+      }
+      
+      console.log('✅ Chart update complete!');
+      
+    })
+    .catch(e => {
+      console.error('❌ Chart update error:', e);
+    });
 }
 
-// ==================== FIREBASE REAL-TIME LISTENERS ====================
-window.setupFirebaseListeners = function() {
-  const database = window.firebaseDatabase;
-  console.log('🔥 Setting up Firebase real-time listeners...');
-  
-  // Temperature listener - data is directly under /latest, not /latest/value
-  const tempRef = window.firebaseRef(database, 'sensors/temperature/latest');
-  window.firebaseOnValue(tempRef, (snapshot) => {
-    const temperature = snapshot.val() || 0;
-    console.log('🌡️ Temperature updated:', temperature);
-    document.getElementById('tempValue').textContent = temperature.toFixed(1) + ' °C';
-    document.getElementById('tempFill').style.width = clamp(temperature, 0, 100) + '%';
-    statusGlow(document.getElementById('tempCard'), temperature, 60, 65);
-  });
-
-  // Humidity listener
-  const humRef = window.firebaseRef(database, 'sensors/humidity/latest');
-  window.firebaseOnValue(humRef, (snapshot) => {
-    const humidity = snapshot.val() || 0;
-    console.log('💧 Humidity updated:', humidity);
-    document.getElementById('humValue').textContent = humidity.toFixed(1) + ' %';
-    document.getElementById('humFill').style.width = clamp(humidity, 0, 100) + '%';
-    statusGlow(document.getElementById('humCard'), humidity, 80, 90);
-  });
-
-  // Gas listener
-  const gasRef = window.firebaseRef(database, 'sensors/gas/latest');
-  window.firebaseOnValue(gasRef, (snapshot) => {
-    const gas = snapshot.val() || 0;
-    console.log('🔥 Gas level updated:', gas);
-    document.getElementById('gasValue').textContent = gas.toFixed(2) + ' ppm';
-    document.getElementById('gasFill').style.width = clamp(gas / 10, 0, 100) + '%';
-    statusGlow(document.getElementById('gasCard'), gas, 600, 800);
-  });
-
-  // pH listener
-  const phRef = window.firebaseRef(database, 'sensors/ph/latest');
-  window.firebaseOnValue(phRef, (snapshot) => {
-    const ph = snapshot.val() || 0;
-    console.log('⚗️ pH level updated:', ph);
-    document.getElementById('phValue').textContent = ph.toFixed(1);
-    document.getElementById('phFill').style.width = clamp((ph / 14) * 100, 0, 100) + '%';
-    const phCard = document.getElementById('phCard');
-    phCard.classList.remove('ok-glow', 'warn-glow', 'crit-glow');
-    if (ph < 6.5 || ph > 8.0) phCard.classList.add('warn-glow');
-    else phCard.classList.add('ok-glow');
-  });
-
-  // Weight listener
-  const weightRef = window.firebaseRef(database, 'sensors/weight/latest');
-  window.firebaseOnValue(weightRef, (snapshot) => {
-    const weight = snapshot.val() || 0;
-    console.log('⚖️ Weight updated:', weight);
-    window.currentWeight = weight;
-    document.getElementById('currentWeightDisplay').textContent = weight.toFixed(4) + ' kg';
-    
-    // Set capacity to 1kg if not explicitly stored
-    const capacity = window.currentCapacity || 1;
-    setBar('weightBar', weight, Math.max(capacity, 1), document.getElementById('weightCard'));
-  });
-
-  // Set default capacity to 1kg (since it's not in your Firebase structure)
-  window.currentCapacity = 1;
-  document.getElementById('capacityDisplay').textContent = '1';
-
-  console.log('✅ All Firebase listeners initialized!');
-}
-
-// Initialize global variables for weight tracking
-window.currentWeight = <?php echo (float)$currentWeight; ?>;
-window.currentCapacity = <?php echo (float)$capacity; ?>;
-
+// Initialize - call immediately and then every 10 seconds
 updateChart();
 setInterval(updateChart, 10000);
 

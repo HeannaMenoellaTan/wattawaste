@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Test - Compost Readiness</title>
+<style>
+body {
+    font-family: 'Courier New', monospace;
+    background: #1a1a1a;
+    color: #00ff00;
+    padding: 20px;
+    line-height: 1.6;
+}
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #2a2a2a;
+    padding: 30px;
+    border-radius: 10px;
+    border: 2px solid #00ff00;
+}
+h1 {
+    color: #00ff00;
+    text-align: center;
+    font-size: 24px;
+    margin-bottom: 30px;
+}
+.section {
+    background: #1a1a1a;
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    border-left: 4px solid #00ff00;
+}
+.section h2 {
+    color: #00ff00;
+    font-size: 18px;
+    margin-top: 0;
+}
+.error {
+    color: #ff4444;
+    border-left-color: #ff4444;
+}
+.success {
+    color: #44ff44;
+    border-left-color: #44ff44;
+}
+.warning {
+    color: #ffaa00;
+    border-left-color: #ffaa00;
+}
+pre {
+    background: #0a0a0a;
+    padding: 15px;
+    border-radius: 5px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.status-badge {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-weight: bold;
+    margin-right: 10px;
+}
+.badge-success { background: #00aa00; color: white; }
+.badge-error { background: #aa0000; color: white; }
+.badge-warning { background: #aa6600; color: white; }
+button {
+    background: #00aa00;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    margin-bottom: 20px;
+}
+button:hover {
+    background: #00cc00;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>🧪 COMPOST READINESS API DIAGNOSTIC TEST</h1>
+    
+    <button onclick="runTest()">🔄 Run Test</button>
+    
+    <div id="results"></div>
+</div>
+
+<script>
+async function runTest() {
+    const resultsDiv = document.getElementById('results');
+    resultsDiv.innerHTML = '<div class="section"><h2>⏳ Testing API...</h2></div>';
+    
+    let html = '';
+    
+    // Test 1: Check if API endpoint exists
+    html += '<div class="section">';
+    html += '<h2>TEST 1: API Endpoint Accessibility</h2>';
+    
+    try {
+        const response = await fetch('predict_readiness.php?t=' + Date.now(), {cache: 'no-store'});
+        
+        if (response.ok) {
+            html += '<div class="status-badge badge-success">✅ PASS</div>';
+            html += '<p>API endpoint is accessible (HTTP ' + response.status + ')</p>';
+        } else {
+            html += '<div class="status-badge badge-error">❌ FAIL</div>';
+            html += '<p>API returned error: HTTP ' + response.status + '</p>';
+        }
+        
+        // Test 2: Check response format
+        html += '</div><div class="section">';
+        html += '<h2>TEST 2: Response Format</h2>';
+        
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            html += '<div class="status-badge badge-success">✅ PASS</div>';
+            html += '<p>Response is JSON format</p>';
+            
+            // Test 3: Parse JSON
+            html += '</div><div class="section">';
+            html += '<h2>TEST 3: JSON Parsing</h2>';
+            
+            try {
+                const data = await response.json();
+                html += '<div class="status-badge badge-success">✅ PASS</div>';
+                html += '<p>JSON parsed successfully</p>';
+                html += '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                
+                // Test 4: Check required fields
+                html += '</div><div class="section">';
+                html += '<h2>TEST 4: Required Fields</h2>';
+                
+                const requiredFields = ['readiness', 'weight_tracking', 'fertilizer_output'];
+                let allFieldsPresent = true;
+                
+                for (const field of requiredFields) {
+                    if (data.hasOwnProperty(field)) {
+                        html += '<div class="status-badge badge-success">✅</div> ' + field + '<br>';
+                    } else {
+                        html += '<div class="status-badge badge-error">❌</div> ' + field + ' MISSING<br>';
+                        allFieldsPresent = false;
+                    }
+                }
+                
+                if (allFieldsPresent) {
+                    // Test 5: Validate data
+                    html += '</div><div class="section success">';
+                    html += '<h2>TEST 5: Data Validation</h2>';
+                    
+                    const readiness = parseFloat(data.readiness);
+                    const weightTracking = data.weight_tracking || {};
+                    const fertilizerOutput = data.fertilizer_output || {};
+                    
+                    html += '<h3>📊 Readiness Score</h3>';
+                    html += '<p><strong>' + readiness.toFixed(1) + '%</strong></p>';
+                    
+                    html += '<h3>⚖️ Weight Tracking</h3>';
+                    html += '<p>Initial Weight: <strong>' + weightTracking.initial_weight + ' kg</strong></p>';
+                    html += '<p>Current Weight: <strong>' + weightTracking.current_weight + ' kg</strong></p>';
+                    html += '<p>Weight Loss: <strong>' + weightTracking.weight_loss_kg + ' kg (' + weightTracking.weight_loss_percent + '%)</strong></p>';
+                    
+                    html += '<h3>🌾 Fertilizer Output</h3>';
+                    html += '<p>Predicted: <strong>' + fertilizerOutput.predicted_output_kg + ' kg</strong></p>';
+                    html += '<p>Actual: <strong>' + (fertilizerOutput.is_ready ? fertilizerOutput.actual_output_kg + ' kg' : 'Not ready yet') + '</strong></p>';
+                    
+                    // Test 6: Check if weight tracking is working
+                    html += '</div><div class="section">';
+                    html += '<h2>TEST 6: Weight Tracking Status</h2>';
+                    
+                    if (weightTracking.initial_weight > 0) {
+                        html += '<div class="status-badge badge-success">✅ ACTIVE</div>';
+                        html += '<p>Weight tracking is working correctly</p>';
+                    } else {
+                        html += '<div class="status-badge badge-warning">⚠️ WARNING</div>';
+                        html += '<p>No initial weight set - weight tracking not initialized</p>';
+                    }
+                    
+                    // Final verdict
+                    html += '</div><div class="section success">';
+                    html += '<h2>✅ FINAL VERDICT</h2>';
+                    html += '<p><strong>API is working correctly!</strong></p>';
+                    html += '<p>The predict_readiness.php file has been updated successfully.</p>';
+                    
+                    if (readiness > 35) {
+                        html += '</div><div class="section warning">';
+                        html += '<h2>⚠️ POTENTIAL ISSUE DETECTED</h2>';
+                        html += '<p>Readiness is <strong>' + readiness.toFixed(1) + '%</strong> but weight loss is <strong>' + weightTracking.weight_loss_percent + '%</strong></p>';
+                        html += '<p>If weight loss is 0%, the readiness should be lower (around 25-35%)</p>';
+                        html += '<p><strong>Possible cause:</strong> Your dashboard JavaScript might not be using the new API yet.</p>';
+                        html += '<p><strong>Solution:</strong> Make sure you updated the updateChart() function in index.php</p>';
+                    }
+                    
+                } else {
+                    html += '</div><div class="section error">';
+                    html += '<h2>❌ TEST FAILED</h2>';
+                    html += '<p>Required fields are missing from API response</p>';
+                    html += '<p><strong>Action:</strong> Make sure predict_readiness.php has been updated correctly</p>';
+                }
+                
+            } catch (parseError) {
+                html += '<div class="status-badge badge-error">❌ FAIL</div>';
+                html += '<p>Failed to parse JSON: ' + parseError.message + '</p>';
+                html += '<p><strong>Response text:</strong></p>';
+                html += '<pre>' + await response.text() + '</pre>';
+            }
+            
+        } else {
+            html += '<div class="status-badge badge-error">❌ FAIL</div>';
+            html += '<p>Response is not JSON (got: ' + contentType + ')</p>';
+            html += '<p>This usually means there\'s a PHP error</p>';
+        }
+        
+    } catch (error) {
+        html += '<div class="status-badge badge-error">❌ FAIL</div>';
+        html += '<p>Failed to fetch API: ' + error.message + '</p>';
+        html += '<p>Make sure predict_readiness.php exists in the same directory as this test file</p>';
+    }
+    
+    html += '</div>';
+    resultsDiv.innerHTML = html;
+}
+
+// Run test automatically on page load
+window.addEventListener('load', runTest);
+</script>
+</body>
+</html>
