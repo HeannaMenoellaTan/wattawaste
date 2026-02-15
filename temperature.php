@@ -1,7 +1,7 @@
 <?php
-// Minimal PHP - just for auth check and page structure
-// All data will be fetched from Firebase via JavaScript
 require_once 'firebase_config.php';
+$database = getDatabase();
+$currentTemp = $database->getReference("sensors/temperature/latest")->getValue() ?? 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -16,226 +16,126 @@ require_once 'firebase_config.php';
 
 <!-- Firebase Auth and Database -->
 <script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+import { initializeApp }        from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-import { getDatabase, ref, onValue, query, limitToLast, remove } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+import { getDatabase, ref, onValue, query, orderByKey, limitToLast }
+    from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
 const firebaseConfig = {
-    apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
-    authDomain: "wattawaste-d3503.firebaseapp.com",
-    databaseURL: "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "wattawaste-d3503",
-    storageBucket: "wattawaste-d3503.firebasestorage.app",
+    apiKey:            "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
+    authDomain:        "wattawaste-d3503.firebaseapp.com",
+    databaseURL:       "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:         "wattawaste-d3503",
+    storageBucket:     "wattawaste-d3503.firebasestorage.app",
     messagingSenderId: "842761118644",
-    appId: "1:842761118644:web:ddef65fd892486f67f88e1",
-    measurementId: "G-33Z8K3NBY1"
+    appId:             "1:842761118644:web:ddef65fd892486f67f88e1",
+    measurementId:     "G-33Z8K3NBY1"
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+const app      = initializeApp(firebaseConfig);
+const auth     = getAuth(app);
 const database = getDatabase(app);
 
 onAuthStateChanged(auth, (user) => {
     if (!user) {
-        console.log('❌ No user found, redirecting to login...');
         window.location.href = 'login.php';
     } else {
-        console.log('✅ User authenticated:', user.email || user.phoneNumber);
         sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
-        sessionStorage.setItem('userId', user.uid);
-        
-        // Initialize temperature monitoring after authentication
-        window.initializeTemperatureMonitoring();
+        sessionStorage.setItem('userId',    user.uid);
+        window.initializeLiveTemp();
     }
 });
 
-window.firebaseAuth = auth;
 window.firebaseDatabase = database;
-window.firebaseRef = ref;
-window.firebaseOnValue = onValue;
-window.firebaseQuery = query;
-window.firebaseLimitToLast = limitToLast;
-window.firebaseRemove = remove;
+window.firebaseRef      = ref;
+window.firebaseOnValue  = onValue;
+window.firebaseQuery    = query;
+window.firebaseOrderByKey   = orderByKey;
+window.firebaseLimitToLast  = limitToLast;
 </script>
 
 <?php include_once 'notif_bell.php'; ?>
 
 <style>
 :root {
-    --brand: #4CAF50;
-    --brand-dark: #2E7D32;
-    --ink: #333;
-    --panel: #fff;
-    --muted: #555;
-    --bg: #F9FAFB;
-    --ok: #22c55e;
-    --warn: #f59e0b;
-    --crit: #ef4444;
+    --brand: #4CAF50; --brand-dark: #2E7D32;
+    --ink: #333; --panel: #fff; --muted: #555; --bg: #F9FAFB;
+    --ok: #22c55e; --warn: #f59e0b; --crit: #ef4444;
 }
 
-body {
-    background: var(--bg);
-    font-family: Poppins, system-ui, Segoe UI, Arial;
-    color: var(--ink);
-    min-height: 100vh;
-}
+body { background: var(--bg); font-family: Poppins, system-ui, Segoe UI, Arial; color: var(--ink); min-height: 100vh; }
 
-.card {
-    border: none;
-    border-radius: 16px;
-    background: var(--panel);
-    box-shadow: 0 6px 16px rgba(2, 6, 23, .06);
-    transition: transform .2s, box-shadow .2s;
-}
+.card { border: none; border-radius: 16px; background: var(--panel);
+        box-shadow: 0 6px 16px rgba(2,6,23,.06); transition: transform .2s, box-shadow .2s; }
+.card:hover { transform: translateY(-3px); box-shadow: 0 12px 26px rgba(2,6,23,.12); }
 
-.card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 12px 26px rgba(2, 6, 23, .12);
-}
-
-.page-title {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--ink);
-    margin-bottom: 24px;
-}
+.page-title { font-size: 28px; font-weight: 700; color: var(--ink); margin-bottom: 24px; }
 
 .temp-hero {
     background: linear-gradient(135deg, #ff7b00 0%, #ff0000 100%);
-    border-radius: 20px;
-    padding: 40px;
-    color: white;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
+    border-radius: 20px; padding: 40px; color: white; text-align: center;
+    position: relative; overflow: hidden;
 }
-
 .temp-hero::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    right: -50%;
-    width: 200%;
-    height: 200%;
+    content: ''; position: absolute; top: -50%; right: -50%;
+    width: 200%; height: 200%;
     background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
     animation: pulse 3s ease-in-out infinite;
 }
-
-@keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 0.5; }
-    50% { transform: scale(1.1); opacity: 0.8; }
-}
+@keyframes pulse { 0%,100%{transform:scale(1);opacity:.5} 50%{transform:scale(1.1);opacity:.8} }
 
 .temp-display-large {
-    font-size: 96px;
-    font-weight: 900;
-    line-height: 1;
-    text-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    position: relative;
-    z-index: 1;
+    font-size: 96px; font-weight: 900; line-height: 1;
+    text-shadow: 0 4px 12px rgba(0,0,0,0.2); position: relative; z-index: 1;
 }
 
 .status-badge-large {
-    display: inline-block;
-    padding: 12px 30px;
-    border-radius: 50px;
-    font-weight: 700;
-    font-size: 18px;
-    background: rgba(255,255,255,0.9);
-    margin-top: 16px;
-    position: relative;
-    z-index: 1;
+    display: inline-block; padding: 12px 30px; border-radius: 50px;
+    font-weight: 700; font-size: 18px; background: rgba(255,255,255,0.9);
+    margin-top: 16px; position: relative; z-index: 1;
 }
-
-.status-badge-large.ok { color: var(--ok); }
+.status-badge-large.ok   { color: var(--ok); }
 .status-badge-large.warn { color: var(--warn); }
 .status-badge-large.crit { color: var(--crit); }
 
-.stat-card {
-    text-align: center;
-    padding: 20px;
-}
-
-.stat-value {
-    font-size: 36px;
-    font-weight: 800;
-    color: var(--brand-dark);
-    line-height: 1;
-}
-
-.stat-label {
-    font-size: 14px;
-    color: var(--muted);
-    margin-top: 8px;
-}
+.stat-card { text-align: center; padding: 20px; }
+.stat-value { font-size: 36px; font-weight: 800; color: var(--brand-dark); line-height: 1; }
+.stat-label { font-size: 14px; color: var(--muted); margin-top: 8px; }
 
 .thermo-visual {
-    width: 80px;
-    height: 300px;
+    width: 80px; height: 300px;
     background: linear-gradient(to top, #0088ff 0%, #00ff00 33%, #ffae00 66%, #ff0000 100%);
-    border-radius: 40px;
-    position: relative;
-    margin: 0 auto;
+    border-radius: 40px; position: relative; margin: 0 auto;
     box-shadow: inset 0 0 20px rgba(0,0,0,0.1);
 }
-
 .thermo-indicator {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(255, 255, 255, 0.4);
-    backdrop-filter: blur(10px);
-    border-radius: 40px;
-    transition: height 1s cubic-bezier(0.4, 0, 0.2, 1);
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.4); backdrop-filter: blur(10px);
+    border-radius: 40px; transition: height 1s cubic-bezier(0.4,0,0.2,1);
     border: 3px solid white;
 }
 
 .history-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 16px;
-    margin-bottom: 8px;
-    background: #f8fafc;
-    border-radius: 12px;
-    border-left: 4px solid var(--brand);
-    transition: all 0.2s;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 16px; margin-bottom: 8px;
+    background: #f8fafc; border-radius: 12px;
+    border-left: 4px solid var(--brand); transition: all 0.2s;
 }
-
-.history-item:hover {
-    background: #f1f5f9;
-    transform: translateX(4px);
-}
-
-.history-value {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--brand-dark);
-}
-
-.history-time {
-    font-size: 13px;
-    color: var(--muted);
-}
-
-.small-muted {
-    color: var(--muted);
-    font-size: 14px;
-}
+.history-item:hover { background: #f1f5f9; transform: translateX(4px); }
+.history-value { font-size: 22px; font-weight: 700; color: var(--brand-dark); }
+.history-time  { font-size: 13px; color: var(--muted); }
+.small-muted   { color: var(--muted); font-size: 14px; }
 
 .alert-custom {
-    padding: 16px 20px;
-    border-radius: 12px;
-    border-left: 4px solid;
-    font-weight: 500;
+    padding: 16px 20px; border-radius: 12px; border-left: 4px solid; font-weight: 500;
 }
+.alert-custom.warning { background: #FFF8E1; color: #7A5A00; border-color: #f59e0b; }
 
-.alert-custom.warning {
-    background: #FFF8E1;
-    color: #7A5A00;
-    border-color: #f59e0b;
-}
+/* Range selector buttons */
+.range-btn { border: 1.5px solid #dee2e6; background: #fff; border-radius: 8px;
+             padding: 5px 14px; font-size: .85rem; cursor: pointer; transition: all .15s; }
+.range-btn:hover  { background: #f1f5f9; }
+.range-btn.active { background: var(--brand-dark); color: #fff; border-color: var(--brand-dark); }
 </style>
 </head>
 <body>
@@ -245,21 +145,21 @@ body {
 <?php include 'topnav.php'; ?>
 
 <div class="container-fluid px-4 py-4">
-    
+
     <h1 class="page-title">🌡️ Temperature Monitoring</h1>
 
     <!-- Hero Temperature Display -->
     <div class="row g-4 mb-4">
         <div class="col-lg-8">
             <div class="temp-hero">
-                <div class="temp-display-large" id="tempDisplay">--°C</div>
-                <div class="status-badge-large ok" id="statusBadge">
-                    Loading...
+                <div class="temp-display-large" id="tempDisplay">
+                    <?php echo number_format((float)$currentTemp, 1); ?>°C
                 </div>
-                <div class="mt-3 small" style="opacity: 0.9; position: relative; z-index: 1;" id="statusDesc">
+                <div class="status-badge-large ok" id="statusBadge">Loading...</div>
+                <div class="mt-3 small" style="opacity:.9;position:relative;z-index:1;" id="statusDesc">
                     Fetching temperature data from sensors...
                 </div>
-                <div class="mt-2 small" style="opacity: 0.8; position: relative; z-index: 1;" id="lastUpdateText">
+                <div class="mt-2 small" style="opacity:.8;position:relative;z-index:1;" id="lastUpdateText">
                     Last updated: --
                 </div>
             </div>
@@ -269,44 +169,46 @@ body {
             <div class="card p-4 h-100 d-flex align-items-center justify-content-center">
                 <h6 class="text-center mb-3">Visual Indicator</h6>
                 <div class="thermo-visual">
-                    <div class="thermo-indicator" id="thermoIndicator" style="height: 0%;"></div>
+                    <div class="thermo-indicator" id="thermoIndicator" style="height:0%;"></div>
                 </div>
                 <div class="mt-3 text-center small-muted">
-                    <div><span style="color: #ff0000;">●</span> 70°C+ Too Hot</div>
-                    <div><span style="color: #ff7b00;">●</span> 45-70°C Active</div>
-                    <div><span style="color: #ffae00;">●</span> 20-45°C Initial</div>
-                    <div><span style="color: #0088ff;">●</span> &lt;20°C Too Cold</div>
+                    <div><span style="color:#ff0000;">●</span> 70°C+ Too Hot</div>
+                    <div><span style="color:#ff7b00;">●</span> 45–70°C Active</div>
+                    <div><span style="color:#ffae00;">●</span> 20–45°C Initial</div>
+                    <div><span style="color:#0088ff;">●</span> &lt;20°C Too Cold</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="alert-custom warning mb-4" id="warningBanner" style="display: none;">
+    <!-- Warning Banner -->
+    <div class="alert-custom warning mb-4" id="warningBanner" style="display:none;">
         <i class="fas fa-exclamation-triangle me-2"></i>
-        <strong>Warning:</strong> <span id="warningText">Temperature is outside the optimal composting range (20-70°C). Monitor closely.</span>
+        <strong>Warning:</strong>
+        <span id="warningText">Temperature is outside the optimal composting range.</span>
     </div>
 
     <!-- Statistics Cards -->
     <div class="row g-4 mb-4">
         <div class="col-md-4">
             <div class="card stat-card">
-                <i class="fas fa-temperature-high text-danger mb-2" style="font-size: 32px;"></i>
+                <i class="fas fa-temperature-high text-danger mb-2" style="font-size:32px;"></i>
                 <div class="stat-value" id="maxTempStat">--°C</div>
-                <div class="stat-label">Maximum Temperature</div>
+                <div class="stat-label">Maximum (selected range)</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card">
-                <i class="fas fa-chart-line text-success mb-2" style="font-size: 32px;"></i>
+                <i class="fas fa-chart-line text-success mb-2" style="font-size:32px;"></i>
                 <div class="stat-value" id="avgTempStat">--°C</div>
-                <div class="stat-label">Average Temperature</div>
+                <div class="stat-label">Average (selected range)</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card">
-                <i class="fas fa-temperature-low text-info mb-2" style="font-size: 32px;"></i>
+                <i class="fas fa-temperature-low text-info mb-2" style="font-size:32px;"></i>
                 <div class="stat-value" id="minTempStat">--°C</div>
-                <div class="stat-label">Minimum Temperature</div>
+                <div class="stat-label">Minimum (selected range)</div>
             </div>
         </div>
     </div>
@@ -315,24 +217,39 @@ body {
     <div class="row g-4 mb-4">
         <div class="col-12">
             <div class="card p-4">
-                <h5 class="mb-3">
-                    <i class="fas fa-chart-area text-primary me-2"></i>
-                    Temperature Trend <span id="readingsCount">(Loading...)</span>
-                </h5>
-                <canvas id="tempChart" style="max-height: 350px;"></canvas>
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-area text-primary me-2"></i>
+                        Temperature Trend
+                        <span id="readingsCount" class="small-muted fs-6"></span>
+                    </h5>
+                    <!-- Range selector -->
+                    <div class="d-flex gap-1 flex-wrap" id="rangeButtons">
+                        <button class="range-btn" data-range="1h">1h</button>
+                        <button class="range-btn" data-range="6h">6h</button>
+                        <button class="range-btn active" data-range="24h">24h</button>
+                        <button class="range-btn" data-range="7d">7d</button>
+                        <button class="range-btn" data-range="30d">30d</button>
+                    </div>
+                </div>
+                <canvas id="tempChart" style="max-height:350px;"></canvas>
+                <div id="chartNoData" class="text-center text-muted small mt-2" style="display:none;">
+                    No data yet for this range. Waiting for ESP32 readings...
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Recent Readings -->
+    <!-- Recent Readings from Firebase History -->
     <div class="row g-4">
         <div class="col-12">
             <div class="card p-4">
                 <h5 class="mb-3">
                     <i class="fas fa-history text-info me-2"></i>
-                    Recent Temperature Readings
+                    Recent Live Readings
+                    <span class="small-muted fs-6 ms-1">(latest 20 from Firebase)</span>
                 </h5>
-                <div id="historyContainer" style="max-height: 500px; overflow-y: auto;">
+                <div id="historyContainer" style="max-height:500px;overflow-y:auto;">
                     <p class="text-muted text-center py-4">Loading temperature history...</p>
                 </div>
             </div>
@@ -340,188 +257,201 @@ body {
     </div>
 
 </div>
-</div>
+</div><!-- end .main -->
 
 <script>
-let tempChart = null;
-let lastUpdateTime = 0;
-const UPDATE_INTERVAL = 1800000; // 30 minutes in milliseconds (30 * 60 * 1000)
+let tempChart    = null;
+let currentRange = '24h';
 
-// Update thermometer visual indicator
-function updateThermoIndicator(temp) {
-    const indicator = document.getElementById('thermoIndicator');
-    const percentage = Math.min(Math.max((temp / 100) * 100, 0), 100);
-    indicator.style.height = percentage + '%';
-}
-
-// Get temperature status
+// ── Helpers ────────────────────────────────────────────────────────────────────
 function getTemperatureStatus(temp) {
-    if (temp >= 45 && temp <= 70) {
-        return {
-            status: 'Thermophilic (Active)',
-            statusClass: 'ok',
-            desc: 'Optimal composting temperature. High microbial activity.'
-        };
-    } else if (temp >= 20 && temp < 45) {
-        return {
-            status: 'Mesophilic (Initial)',
-            statusClass: 'warn',
-            desc: 'Initial composting phase. Microbes breaking down materials.'
-        };
-    } else if (temp < 20) {
-        return {
-            status: 'Too Cold',
-            statusClass: 'crit',
-            desc: 'Temperature too low for effective composting.'
-        };
-    } else {
-        return {
-            status: 'Too Hot',
-            statusClass: 'crit',
-            desc: 'Temperature exceeds safe composting range.'
-        };
-    }
+    if (temp >= 45 && temp <= 70)
+        return { status: 'Thermophilic (Active)', cls: 'ok',   desc: 'Optimal composting temperature. High microbial activity.' };
+    if (temp >= 20 && temp < 45)
+        return { status: 'Mesophilic (Initial)',  cls: 'warn', desc: 'Initial composting phase. Microbes breaking down materials.' };
+    if (temp < 20)
+        return { status: 'Too Cold', cls: 'crit', desc: 'Temperature too low for effective composting.' };
+    return     { status: 'Too Hot',  cls: 'crit', desc: 'Temperature exceeds safe composting range.' };
 }
 
-// Update temperature display
-function updateTemperatureDisplay(temp) {
-    const status = getTemperatureStatus(temp);
-    
-    // Update display
-    document.getElementById('tempDisplay').textContent = temp.toFixed(1) + '°C';
-    document.getElementById('statusBadge').textContent = status.status;
-    document.getElementById('statusDesc').textContent = status.desc;
-    document.getElementById('lastUpdateText').textContent = 'Last updated: ' + new Date().toLocaleString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
+function updateThermoIndicator(temp) {
+    const pct = Math.min(Math.max((temp / 100) * 100, 0), 100);
+    document.getElementById('thermoIndicator').style.height = pct + '%';
+}
+
+function formatTimestamp(tsMs) {
+    // tsMs is milliseconds (the value stored by ESP32 as `timestamp` inside the object,
+    // OR the key itself which is also milliseconds-since-epoch)
+    const d = new Date(Number(tsMs));
+    if (isNaN(d.getTime())) return 'Unknown time';
+    return d.toLocaleString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true
     });
-    
-    // Update thermometer indicator
-    updateThermoIndicator(temp);
-    
-    // Update badge classes
-    const badge = document.getElementById('statusBadge');
-    badge.classList.remove('ok', 'warn', 'crit');
-    badge.classList.add(status.statusClass);
-    
-    // Update warning banner
-    const warningBanner = document.getElementById('warningBanner');
-    if (temp < 15 || temp > 75) {
-        warningBanner.style.display = 'block';
-    } else {
-        warningBanner.style.display = 'none';
-    }
 }
 
-// Update statistics
-function updateStatistics(historyData) {
-    if (historyData.length === 0) return;
-    
-    const temperatures = historyData.map(item => item.value);
-    const maxTemp = Math.max(...temperatures);
-    const minTemp = Math.min(...temperatures);
-    const avgTemp = temperatures.reduce((a, b) => a + b, 0) / temperatures.length;
-    
-    document.getElementById('maxTempStat').textContent = maxTemp.toFixed(1) + '°C';
-    document.getElementById('avgTempStat').textContent = avgTemp.toFixed(1) + '°C';
-    document.getElementById('minTempStat').textContent = minTemp.toFixed(1) + '°C';
+// ── Get range cutoff in milliseconds ──────────────────────────────────────────
+function getRangeCutoffMs(range) {
+    const now = Date.now();
+    const map = {
+        '1h':  60 * 60 * 1000,
+        '6h':  6  * 60 * 60 * 1000,
+        '24h': 24 * 60 * 60 * 1000,
+        '7d':  7  * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000
+    };
+    return now - (map[range] || map['24h']);
 }
 
-// Update history display
-function updateHistoryDisplay(historyData) {
-    const container = document.getElementById('historyContainer');
-    
-    if (historyData.length === 0) {
-        container.innerHTML = '<p class="text-muted text-center py-4">No history data available</p>';
-        return;
-    }
-    
-    // Take last 10 readings
-    const recent = historyData.slice(0, 10);
-    
-    container.innerHTML = recent.map(record => {
-        const val = record.value;
-        let badgeClass = 'success';
-        let badgeText = 'Active';
-        
-        if (val >= 45 && val <= 70) {
-            badgeClass = 'success';
-            badgeText = 'Active';
-        } else if (val >= 20 && val < 45) {
-            badgeClass = 'warning';
-            badgeText = 'Initial';
-        } else {
-            badgeClass = 'danger';
-            badgeText = 'Alert';
+// ── Live temperature (Firebase real-time latest) ───────────────────────────────
+window.initializeLiveTemp = function () {
+    const db = window.firebaseDatabase;
+
+    // Live latest value
+    const latestRef = window.firebaseRef(db, 'sensors/temperature/latest');
+    window.firebaseOnValue(latestRef, (snapshot) => {
+        const temp = snapshot.val() || 0;
+        const info = getTemperatureStatus(temp);
+
+        document.getElementById('tempDisplay').textContent = temp.toFixed(1) + '°C';
+        document.getElementById('statusDesc').textContent  = info.desc;
+        document.getElementById('lastUpdateText').textContent =
+            'Last updated: ' + new Date().toLocaleString('en-US', {
+                hour: 'numeric', minute: '2-digit',
+                month: 'short', day: 'numeric', year: 'numeric'
+            });
+
+        updateThermoIndicator(temp);
+
+        const badge = document.getElementById('statusBadge');
+        badge.textContent = info.status;
+        badge.className   = 'status-badge-large ' + info.cls;
+
+        const banner = document.getElementById('warningBanner');
+        banner.style.display = (temp < 15 || temp > 75) ? 'block' : 'none';
+    });
+
+    // Load history for chart + recent table
+    loadHistoryData('24h');
+};
+
+// ── Load history directly from Firebase RTDB ──────────────────────────────────
+// FIX: Reads the new {value, timestamp} object structure written by the ESP32.
+//      Previously this read from chart_data.php (aggregated), now reads live from Firebase.
+function loadHistoryData(range) {
+    currentRange = range;
+
+    document.querySelectorAll('.range-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.range === range);
+    });
+
+    const db       = window.firebaseDatabase;
+    const cutoffMs = getRangeCutoffMs(range);
+
+    // Fetch last 500 entries (ordered by key = timestamp string)
+    // Then filter client-side by range cutoff
+    const histRef = window.firebaseQuery(
+        window.firebaseRef(db, 'sensors/temperature/history'),
+        window.firebaseOrderByKey(),
+        window.firebaseLimitToLast(500)
+    );
+
+    window.firebaseOnValue(histRef, (snapshot) => {
+        const raw = snapshot.val();
+
+        if (!raw) {
+            showNoData();
+            return;
         }
-        
-        const date = new Date(record.timestamp);
-        const timeString = date.toLocaleString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
+
+        // Build sorted array from the Firebase snapshot
+        // Each entry is: { key: "1739332800000", value: { value: 25.5, timestamp: 1739332800000 } }
+        // OR legacy flat: { key: "1739332800000", value: 25.5 }
+        const entries = [];
+
+        Object.entries(raw).forEach(([key, entry]) => {
+            let val, tsMs;
+
+            // FIX: Handle BOTH new object format {value, timestamp} AND legacy flat float
+            if (typeof entry === 'object' && entry !== null && 'value' in entry) {
+                val  = parseFloat(entry.value);
+                tsMs = entry.timestamp || parseFloat(key); // prefer stored timestamp, fallback to key
+            } else {
+                // Legacy: entry is a plain number
+                val  = parseFloat(entry);
+                tsMs = parseFloat(key);
+            }
+
+            if (!isNaN(val) && !isNaN(tsMs) && tsMs >= cutoffMs) {
+                entries.push({ ts: tsMs, value: val });
+            }
         });
-        
-        return `
-            <div class="history-item">
-                <div>
-                    <div class="history-value">${val.toFixed(1)}°C</div>
-                    <div class="history-time">${timeString}</div>
-                </div>
-                <div>
-                    <span class="badge bg-${badgeClass}">${badgeText}</span>
-                </div>
-            </div>
-        `;
-    }).join('');
+
+        // Sort ascending by timestamp
+        entries.sort((a, b) => a.ts - b.ts);
+
+        if (entries.length === 0) {
+            showNoData();
+            return;
+        }
+
+        document.getElementById('chartNoData').style.display = 'none';
+
+        // Build chart data
+        const labels   = entries.map(e => formatTimestamp(e.ts));
+        const values   = entries.map(e => e.value);
+
+        // Compute stats
+        const maxVal = Math.max(...values);
+        const minVal = Math.min(...values);
+        const avgVal = values.reduce((a, b) => a + b, 0) / values.length;
+
+        document.getElementById('maxTempStat').textContent     = maxVal.toFixed(1) + '°C';
+        document.getElementById('avgTempStat').textContent     = avgVal.toFixed(1) + '°C';
+        document.getElementById('minTempStat').textContent     = minVal.toFixed(1) + '°C';
+        document.getElementById('readingsCount').textContent   = `(${entries.length} readings)`;
+
+        renderChart(labels, values);
+        renderHistory(entries);
+    }, { onlyOnce: true }); // onlyOnce: true — reload on range change; live updates via latest
 }
 
-// Update chart
-function updateChart(historyData) {
-    const ctx = document.getElementById('tempChart').getContext('2d');
-    
-    // Prepare data
-    const labels = historyData.map(item => {
-        const date = new Date(item.timestamp);
-        return date.toLocaleString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-        });
-    });
-    
-    const temperatures = historyData.map(item => item.value);
-    
-    // Create gradient
-    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(255, 123, 0, 0.3)');
-    gradient.addColorStop(1, 'rgba(255, 0, 0, 0.05)');
-    
-    // Destroy existing chart if it exists
-    if (tempChart) {
-        tempChart.destroy();
-    }
-    
-    // Create new chart
+function showNoData() {
+    document.getElementById('chartNoData').style.display = 'block';
+    ['maxTempStat','avgTempStat','minTempStat'].forEach(id =>
+        document.getElementById(id).textContent = '--°C');
+    document.getElementById('readingsCount').textContent = '';
+    document.getElementById('historyContainer').innerHTML =
+        '<p class="text-muted text-center py-4">No data found for this time range.</p>';
+}
+
+// ── Render Chart.js chart ─────────────────────────────────────────────────────
+function renderChart(labels, values) {
+    if (tempChart) { tempChart.destroy(); tempChart = null; }
+
+    const ctx  = document.getElementById('tempChart').getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 400);
+    grad.addColorStop(0, 'rgba(255,123,0,0.3)');
+    grad.addColorStop(1, 'rgba(255,0,0,0.05)');
+
+    // Thin out labels when many points so axis stays readable
+    const maxTicks = 10;
+    const step     = Math.ceil(labels.length / maxTicks);
+    const tickLabels = labels.map((l, i) => (i % step === 0) ? l : '');
+
     tempChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: labels.reverse(),
+            labels: tickLabels,
             datasets: [{
                 label: 'Temperature (°C)',
-                data: temperatures.reverse(),
+                data: values,
                 borderColor: '#ff7b00',
-                backgroundColor: gradient,
+                backgroundColor: grad,
                 borderWidth: 3,
                 tension: 0.4,
                 fill: true,
-                pointRadius: 3,
+                pointRadius: values.length > 50 ? 0 : 3,
                 pointHoverRadius: 6,
                 pointBackgroundColor: '#ff7b00',
                 pointBorderColor: '#fff',
@@ -531,129 +461,85 @@ function updateChart(historyData) {
         options: {
             responsive: true,
             maintainAspectRatio: true,
+            interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: { display: false },
                 tooltip: {
                     backgroundColor: 'rgba(0,0,0,0.8)',
                     padding: 12,
-                    titleFont: { size: 14 },
-                    bodyFont: { size: 13 },
                     callbacks: {
-                        label: function(context) {
-                            return 'Temperature: ' + context.parsed.y.toFixed(1) + '°C';
-                        }
+                        // Show real label in tooltip even if axis label is blank
+                        title:  (items) => labels[items[0].dataIndex],
+                        label:  (ctx)   => ` ${ctx.parsed.y.toFixed(1)}°C`
                     }
                 }
             },
             scales: {
                 y: {
-                    beginAtZero: true,
-                    min: 0,
-                    max: 100,
-                    ticks: {
-                        callback: function(value) {
-                            return value + '°C';
-                        }
-                    },
-                    grid: {
-                        color: 'rgba(0,0,0,0.05)'
-                    }
+                    min: 0, max: 100,
+                    ticks: { callback: v => v + '°C' },
+                    grid:  { color: 'rgba(0,0,0,0.05)' }
                 },
                 x: {
-                    grid: {
-                        display: false
-                    }
+                    ticks: { maxTicksLimit: 10, maxRotation: 0 },
+                    grid:  { display: false }
                 }
             }
         }
     });
-    
-    document.getElementById('readingsCount').textContent = `(Last ${historyData.length} Readings)`;
 }
 
-// Initialize temperature monitoring with Firebase
-window.initializeTemperatureMonitoring = function() {
-    console.log('🌡️ Initializing temperature monitoring...');
-    
-    const database = window.firebaseDatabase;
-    
-    // Listen to latest temperature (real-time, but throttled to 30 minutes)
-    const tempRef = window.firebaseRef(database, 'sensors/temperature/latest');
-    window.firebaseOnValue(tempRef, (snapshot) => {
-        const now = Date.now();
-        
-        // Only update display every 30 minutes
-        if (now - lastUpdateTime < UPDATE_INTERVAL) {
-            console.log('⏱️ Skipping temperature update (less than 30 minutes since last update)');
-            return;
-        }
-        
-        lastUpdateTime = now;
-        
-        const temp = snapshot.val() || 0;
-        console.log('🌡️ Temperature updated:', temp);
-        
-        updateTemperatureDisplay(temp);
+// ── Render recent history list ─────────────────────────────────────────────────
+function renderHistory(entries) {
+    const container = document.getElementById('historyContainer');
+
+    if (!entries.length) {
+        container.innerHTML = '<p class="text-muted text-center py-4">No history data available</p>';
+        return;
+    }
+
+    // Show 20 most recent (entries are sorted ascending, so slice from end)
+    const recent = entries.slice(-20).reverse();
+    let html = '';
+
+    recent.forEach(entry => {
+        const val  = entry.value;
+        let badgeClass = 'success', badgeText = 'Active';
+
+        if      (val >= 45 && val <= 70) { badgeClass = 'success'; badgeText = 'Active';  }
+        else if (val >= 20 && val < 45)  { badgeClass = 'warning'; badgeText = 'Initial'; }
+        else                             { badgeClass = 'danger';  badgeText = 'Alert';   }
+
+        html += `
+            <div class="history-item">
+                <div>
+                    <div class="history-value">${val.toFixed(1)}°C</div>
+                    <div class="history-time">${formatTimestamp(entry.ts)}</div>
+                </div>
+                <span class="badge bg-${badgeClass}">${badgeText}</span>
+            </div>`;
     });
-    
-    // Listen to temperature history (limited to last 10 readings)
-    const historyQuery = window.firebaseQuery(
-        window.firebaseRef(database, 'sensors/temperature/history'),
-        window.firebaseLimitToLast(10)
-    );
-    
-    window.firebaseOnValue(historyQuery, async (snapshot) => {
-        const historyData = [];
-        const allKeys = [];
-        
-        if (snapshot.exists()) {
-            snapshot.forEach((childSnapshot) => {
-                const timestamp = parseInt(childSnapshot.key);
-                const value = childSnapshot.val();
-                
-                allKeys.push(timestamp);
-                
-                historyData.push({
-                    timestamp: timestamp,
-                    value: value
-                });
-            });
-        }
-        
-        // Sort by timestamp (newest first)
-        historyData.sort((a, b) => b.timestamp - a.timestamp);
-        
-        // Keep only the 10 most recent readings and delete older ones
-        if (allKeys.length > 10) {
-            const sortedKeys = allKeys.sort((a, b) => b - a);
-            const keysToDelete = sortedKeys.slice(10); // Get keys beyond the 10 most recent
-            
-            // Delete old records from Firebase
-            for (const key of keysToDelete) {
-                const recordRef = window.firebaseRef(database, `sensors/temperature/history/${key}`);
-                try {
-                    await window.firebaseRemove(recordRef);
-                    console.log(`🗑️ Deleted old temperature record: ${key}`);
-                } catch (err) {
-                    console.error(`❌ Failed to delete record ${key}:`, err);
-                }
-            }
-        }
-        
-        console.log('📊 Temperature history loaded:', historyData.length, 'readings');
-        
-        // Update statistics
-        updateStatistics(historyData);
-        
-        // Update history display
-        updateHistoryDisplay(historyData);
-        
-        // Update chart
-        updateChart(historyData);
-    });
-    
-    console.log('✅ Temperature monitoring initialized');
-};
+
+    container.innerHTML = html;
+}
+
+// ── Wire range buttons ─────────────────────────────────────────────────────────
+document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => loadHistoryData(btn.dataset.range));
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+(function () {
+    const initTemp = <?php echo (float)$currentTemp; ?>;
+    if (initTemp > 0) {
+        const info  = getTemperatureStatus(initTemp);
+        const badge = document.getElementById('statusBadge');
+        badge.textContent = info.status;
+        badge.className   = 'status-badge-large ' + info.cls;
+        document.getElementById('statusDesc').textContent = info.desc;
+        updateThermoIndicator(initTemp);
+    }
+})();
 </script>
 
 </body>

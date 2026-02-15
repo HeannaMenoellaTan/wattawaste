@@ -1,3 +1,7 @@
+<?php
+// profile.php - Fixed version with better error handling
+require_once 'firebase_config.php';
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -49,6 +53,8 @@
     window.firebaseSet = set;
     window.firebaseOnValue = onValue;
     </script>
+
+    <?php include_once 'notif_bell.php'; ?>
 
     <style>
         :root {
@@ -369,15 +375,14 @@
             margin-top: 10px;
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(35, 237, 153, 0.4);
         }
 
         .btn-primary:disabled {
-            opacity: 0.5;
+            opacity: 0.6;
             cursor: not-allowed;
-            transform: none;
         }
 
         .btn-secondary {
@@ -698,7 +703,7 @@
                 <div class="upload-area" id="uploadArea" onclick="document.getElementById('imageInput').click()">
                     <i class="fas fa-cloud-upload-alt upload-icon"></i>
                     <div>Click to upload or drag and drop</div>
-                    <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">PNG, JPG or JPEG (Max 5MB)</div>
+                    <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">PNG, JPG or JPEG (Max 2MB)</div>
                 </div>
                 <input type="file" id="imageInput" accept="image/png,image/jpeg,image/jpg" onchange="handleImageUpload(event)">
             </div>
@@ -847,7 +852,44 @@ function selectBin(binNumber) {
     document.getElementById('selectBinBtn').disabled = false;
 }
 
-function handleImageUpload(event) {
+// Compress image to reduce size
+function compressImage(base64Str, maxWidth = 800, maxHeight = 800, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+
+            // Calculate new dimensions
+            if (width > height) {
+                if (width > maxWidth) {
+                    height = height * (maxWidth / width);
+                    width = maxWidth;
+                }
+            } else {
+                if (height > maxHeight) {
+                    width = width * (maxHeight / height);
+                    height = maxHeight;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Compress to JPEG
+            const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+            resolve(compressedBase64);
+        };
+        img.onerror = reject;
+        img.src = base64Str;
+    });
+}
+
+async function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
     
@@ -857,24 +899,31 @@ function handleImageUpload(event) {
         return;
     }
     
-    if (file.size > 5 * 1024 * 1024) {
-        showAlert('Image size must be less than 5MB', 'error');
+    if (file.size > 2 * 1024 * 1024) {
+        showAlert('Image size must be less than 2MB', 'error');
         return;
     }
     
     const reader = new FileReader();
-    reader.onload = (e) => {
-        uploadedImage = e.target.result;
-        
-        const uploadArea = document.getElementById('uploadArea');
-        uploadArea.classList.add('has-image');
-        uploadArea.innerHTML = `
-            <img src="${uploadedImage}" alt="Preview" class="upload-preview">
-            <div>Image uploaded successfully!</div>
-            <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">Click to change image</div>
-        `;
-        
-        document.getElementById('completeVerificationBtn').disabled = false;
+    reader.onload = async (e) => {
+        try {
+            // Compress the image before storing
+            const compressed = await compressImage(e.target.result, 400, 400, 0.7);
+            uploadedImage = compressed;
+            
+            const uploadArea = document.getElementById('uploadArea');
+            uploadArea.classList.add('has-image');
+            uploadArea.innerHTML = `
+                <img src="${compressed}" alt="Preview" class="upload-preview">
+                <div>Image uploaded successfully!</div>
+                <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">Click to change image</div>
+            `;
+            
+            document.getElementById('completeVerificationBtn').disabled = false;
+        } catch (error) {
+            console.error('Image compression error:', error);
+            showAlert('Failed to process image. Please try another image.', 'error');
+        }
     };
     reader.readAsDataURL(file);
 }
@@ -885,24 +934,70 @@ async function completeVerification() {
         return;
     }
     
+    // Disable button to prevent double submission
+    const btn = document.getElementById('completeVerificationBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    
     userData.profilePicture = uploadedImage;
     userData.isVerified = true;
     
     // Save to Firebase
     try {
         const userId = sessionStorage.getItem('userId');
-        const userRef = window.firebaseRef(window.firebaseDatabase, `users/${userId}`);
-        await window.firebaseSet(userRef, userData);
+        if (!userId) {
+            throw new Error('User ID not found. Please log in again.');
+        }
         
+        // Validate required fields
+        if (!userData.address || !userData.bin) {
+            throw new Error('Missing required verification data. Please start over.');
+        }
+        
+        console.log('📤 Saving profile to Firebase...');
+        
+        const userRef = window.firebaseRef(window.firebaseDatabase, `users/${userId}`);
+        
+        // Save data to Firebase
+        await window.firebaseSet(userRef, {
+            name: userData.name || '',
+            facebook: userData.facebook || '',
+            google: userData.google || '',
+            phone: userData.phone || '',
+            address: userData.address,
+            bin: userData.bin,
+            profilePicture: uploadedImage,
+            isVerified: true,
+            verifiedDate: new Date().toISOString()
+        });
+        
+        console.log('✅ Profile saved successfully to Firebase');
         showAlert('Verification complete! Your account is now fully verified.', 'success');
         
         setTimeout(() => {
             closeVerificationModal();
             updateProfileDisplay();
+            // Refresh the page to update all verification-dependent features
+            window.location.reload();
         }, 1500);
     } catch (error) {
-        console.error('Error saving profile:', error);
-        showAlert('Failed to save profile. Please try again.', 'error');
+        console.error('❌ Error saving profile:', error);
+        
+        // Show specific error message
+        let errorMessage = 'Failed to save profile. ';
+        if (error.message.includes('permission')) {
+            errorMessage += 'Permission denied. Please check your Firebase rules.';
+        } else if (error.message.includes('size') || error.message.includes('too large')) {
+            errorMessage += 'Data is too large. Please use a smaller image.';
+        } else {
+            errorMessage += error.message || 'Please try again.';
+        }
+        
+        showAlert(errorMessage, 'error');
+        
+        // Re-enable button
+        btn.disabled = false;
+        btn.textContent = 'Complete Verification';
     }
 }
 
@@ -911,7 +1006,7 @@ function resetVerification() {
     uploadedImage = null;
     document.getElementById('addressInput').value = '';
     document.getElementById('selectBinBtn').disabled = true;
-    document.getElementById('completeVerificationBtn').disabled = false;
+    document.getElementById('completeVerificationBtn').disabled = true;
     document.querySelectorAll('.bin-card').forEach(c => c.classList.remove('selected'));
     
     const uploadArea = document.getElementById('uploadArea');
@@ -919,7 +1014,7 @@ function resetVerification() {
     uploadArea.innerHTML = `
         <i class="fas fa-cloud-upload-alt upload-icon"></i>
         <div>Click to upload or drag and drop</div>
-        <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">PNG, JPG or JPEG (Max 5MB)</div>
+        <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">PNG, JPG or JPEG (Max 2MB)</div>
     `;
     
     document.getElementById('imageInput').value = '';

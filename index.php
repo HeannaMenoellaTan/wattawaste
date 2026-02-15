@@ -39,19 +39,16 @@ onAuthStateChanged(auth, (user) => {
         sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
         sessionStorage.setItem('userId', user.uid);
         
-        // Check if user has verified profile for mixer control
         const userRef = ref(database, `users/${user.uid}`);
         onValue(userRef, (snapshot) => {
             const userData = snapshot.val();
             console.log('👤 User profile data:', userData);
             
-            // User is authorized if they have a verified profile
             const isVerified = userData && userData.isVerified === true;
             console.log('🔐 Profile verification status:', isVerified);
             
             sessionStorage.setItem('isAuthorizedForMixer', isVerified);
             
-            // Show/hide mixer controls based on verification
             const mixerControls = document.getElementById('mixerControls');
             const unauthorizedMessage = document.getElementById('unauthorizedMessage');
             
@@ -72,11 +69,8 @@ onAuthStateChanged(auth, (user) => {
             }
         });
         
-        // Initialize Firebase real-time listeners after authentication
         console.log('🔥 Initializing Firebase listeners...');
         window.setupFirebaseListeners();
-        
-        // Initialize mixer controls after Firebase is ready
         window.initializeMixerControls();
     }
 });
@@ -87,7 +81,6 @@ window.firebaseRef = ref;
 window.firebaseSet = set;
 window.firebaseOnValue = onValue;
 
-// Initialize mixer controls function (called after Firebase is ready)
 window.initializeMixerControls = function() {
   console.log('🎛️ Initializing mixer controls...');
   
@@ -96,25 +89,13 @@ window.initializeMixerControls = function() {
   const mixerAlert = document.getElementById('mixerAlert');
   const mixerText = document.getElementById('mixerText');
 
-  // Debug: Check if elements exist
-  console.log('🔧 Mixer elements check:');
-  console.log('  - toggle:', toggle ? '✅ Found' : '❌ Not found');
-  console.log('  - knob:', knob ? '✅ Found' : '❌ Not found');
-  console.log('  - mixerAlert:', mixerAlert ? '✅ Found' : '❌ Not found');
-  console.log('  - mixerText:', mixerText ? '✅ Found' : '❌ Not found');
-
   if (!toggle) {
     console.error('❌ CRITICAL: Mixer toggle element not found!');
     return;
   }
 
-  // Create Firebase references
   const motorRef = window.firebaseRef(window.firebaseDatabase, 'controls/motor/command');
   const motorStatusRef = window.firebaseRef(window.firebaseDatabase, 'controls/motor/status');
-
-  console.log('🔥 Firebase refs created:');
-  console.log('  - motorRef:', motorRef);
-  console.log('  - motorStatusRef:', motorStatusRef);
 
   function showMixerAlert(msg, type='success'){
     mixerAlert.style.display='block'; 
@@ -144,87 +125,46 @@ window.initializeMixerControls = function() {
 
   applyMixerUI();
 
-  // Listen to motor status changes from Firebase
   window.firebaseOnValue(motorStatusRef, (snapshot) => {
     const status = snapshot.val();
-    console.log('🔥 Motor status from Firebase:', status);
-    if (status === 'running') {
-      mixerData.on = true;
-      applyMixerUI();
-    } else if (status === 'stopped') {
-      mixerData.on = false;
-      applyMixerUI();
-    }
+    if (status === 'running') { mixerData.on = true; applyMixerUI(); }
+    else if (status === 'stopped') { mixerData.on = false; applyMixerUI(); }
   });
 
-  // Also listen to motor command to detect remote/timeout stops
   window.firebaseOnValue(motorRef, (snapshot) => {
     const command = snapshot.val();
-    console.log('🔥 Motor command from Firebase:', command);
-    if (command === false && mixerData.on) {
-      // Motor was stopped remotely or by timeout
-      mixerData.on = false;
-      applyMixerUI();
-    }
+    if (command === false && mixerData.on) { mixerData.on = false; applyMixerUI(); }
   });
 
-  // Toggle click handler with Firebase control
   toggle.addEventListener('click', async () => {
-    console.log('🖱️ Toggle clicked!');
-    
     const isAuthorized = sessionStorage.getItem('isAuthorizedForMixer');
-    console.log('🔐 isAuthorizedForMixer from sessionStorage:', isAuthorized);
-    console.log('🔐 Checking authorization:', isAuthorized === 'true');
-    
     if (isAuthorized !== 'true') {
-      console.log('❌ NOT AUTHORIZED - showing error');
       showMixerAlert('🔒 Access Denied: Please verify your profile to control the mixer.', 'error');
       return;
     }
     
-    console.log('✅ User is authorized, proceeding...');
-    
     if (!mixerData.on) {
-      console.log('💡 Mixer is currently OFF, attempting to turn ON...');
       if (mixerData.count >= 2) { 
-        console.log('⚠️ Daily limit reached:', mixerData.count);
         showMixerAlert('⚠️ You can only turn the mixer ON twice per day.', 'warning'); 
         return; 
       }
-      
-      // Send command to Firebase
       try {
-        console.log('📤 Sending motor ON command to Firebase...');
-        console.log('📍 Motor ref path:', motorRef.toString());
         await window.firebaseSet(motorRef, true);
-        console.log('✅ Firebase command sent successfully');
-        
-        mixerData.on = true; 
-        mixerData.count++; 
-        mixerData.date = today;
+        mixerData.on = true; mixerData.count++; mixerData.date = today;
         localStorage.setItem('mixerData', JSON.stringify(mixerData)); 
         applyMixerUI(); 
         showMixerAlert(`✅ Mixer turned ON (${mixerData.count}/2)`, 'success');
       } catch (error) {
-        console.error('❌ Firebase error:', error);
-        console.error('❌ Error details:', error.message, error.code);
         showMixerAlert('❌ Failed to turn on mixer: ' + error.message, 'error');
       }
     } else {
-      console.log('🛑 Mixer is currently ON, attempting to turn OFF...');
-      // Send stop command to Firebase
       try {
-        console.log('📤 Sending motor OFF command to Firebase...');
         await window.firebaseSet(motorRef, false);
-        console.log('✅ Firebase stop command sent successfully');
-        
         mixerData.on = false; 
         localStorage.setItem('mixerData', JSON.stringify(mixerData));
         applyMixerUI(); 
         showMixerAlert('🛑 Mixer turned OFF', 'error');
       } catch (error) {
-        console.error('❌ Firebase error:', error);
-        console.error('❌ Error details:', error.message, error.code);
         showMixerAlert('❌ Failed to turn off mixer: ' + error.message, 'error');
       }
     }
@@ -254,7 +194,6 @@ window.initializeMixerControls = function() {
 
   .bar-container{width:100%;background:#E9ECEF;height:12px;border-radius:10px;overflow:hidden;position:relative}
   .bar{height:100%;width:0%;border-radius:10px;transition:width .9s ease}
-
   .bar::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
               background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
               animation:shimmer 1.8s infinite}
@@ -279,8 +218,7 @@ window.initializeMixerControls = function() {
   .sensor-card .value{font-size:26px;font-weight:800;margin-bottom:12px}
  
   .thermo-meter,.droplet-meter,.gas-meter,.ph-meter{
-    width:100%;height:18px;border-radius:50px;background:#f1f5f9;overflow:hidden;position:relative
-  }
+    width:100%;height:18px;border-radius:50px;background:#f1f5f9;overflow:hidden;position:relative}
   .thermo-fill{height:100%;width:0%;background:linear-gradient(90deg,#ff7b00,#ff0000);
                box-shadow:0 0 12px rgba(255,90,0,.45);transition:width 1s ease}
   .droplet-fill{height:100%;width:0%;background:linear-gradient(90deg,#00b4d8,#48cae4);
@@ -302,54 +240,22 @@ window.initializeMixerControls = function() {
   .mixer-alert.error{background:#FFE5E5;color:#7F1D1D;border-left:6px solid #ef4444}
   
   .unauthorized-message{
-    background:#FFF8E1;
-    border:2px solid #fbbf24;
-    border-radius:12px;
-    padding:16px 20px;
-    color:#7A5A00;
-    font-weight:600;
-    text-align:center;
-    display:none;
-  }
-  
-  .unauthorized-message a {
-    color: #E65100;
-    text-decoration: underline;
-    font-weight: 700;
-  }
-  
-  .unauthorized-message a:hover {
-    color: #BF360C;
-  }
-  
-  .mixer-disabled {
-    opacity: 0.5;
-    cursor: not-allowed !important;
-    pointer-events: none;
-  }
-  
-  /* Ensure mixer toggle is always clickable */
-  #mixerToggle {
-    cursor: pointer !important;
-    pointer-events: auto !important;
-    z-index: 1000;
-  }
-  
-  #mixerToggle:hover {
-    opacity: 0.9;
-    transform: scale(1.05);
-    transition: all 0.2s ease;
-  }
+    background:#FFF8E1;border:2px solid #fbbf24;border-radius:12px;
+    padding:16px 20px;color:#7A5A00;font-weight:600;text-align:center;display:none;}
+  .unauthorized-message a{color:#E65100;text-decoration:underline;font-weight:700;}
+  .unauthorized-message a:hover{color:#BF360C;}
+  .mixer-disabled{opacity:0.5;cursor:not-allowed !important;pointer-events:none;}
+  #mixerToggle{cursor:pointer !important;pointer-events:auto !important;z-index:1000;}
+  #mixerToggle:hover{opacity:0.9;transform:scale(1.05);transition:all 0.2s ease;}
+
+  /* ── History Chart Card ── */
+  .history-card select, .history-card .btn{font-size:.85rem;}
+  #historyChartMsg{font-size:.85rem;}
 </style>
 </head>
 <body>
 
-<?php
-/**
- * Enhanced Compost Stage Detection
- * Replace the stage detection section in your index.php with this code
- */
-
+<?php 
 require_once 'firebase_config.php';
 $database = getDatabase();
 
@@ -358,74 +264,27 @@ $firebaseHumidity = $database->getReference("sensors/humidity/latest")->getValue
 $firebaseGas      = $database->getReference("sensors/gas/latest")->getValue();
 $firebasePH       = $database->getReference("sensors/ph/latest")->getValue();
 $firebaseWeight   = $database->getReference("sensors/weight/latest")->getValue();
-$firebaseInitialWeight = $database->getReference("sensors/weight/initial")->getValue();
 
 $temp = $firebaseTemp ?? 0;
 $humidity = $firebaseHumidity ?? 0;
 $gas = $firebaseGas ?? 0;
 $ph = $firebasePH ?? 0;
-$capacity = 100; // 100 kg maximum capacity
+$capacity = 1;
 $currentWeight = $firebaseWeight ?? 0;
-$initialWeight = $firebaseInitialWeight ?? $currentWeight;
-
-// Calculate weight loss percentage
-$weightLoss = 0;
-if ($initialWeight > 0) {
-    $weightLoss = (($initialWeight - $currentWeight) / $initialWeight) * 100;
-}
-
-// ========== ENHANCED STAGE DETECTION ==========
-// Now considers BOTH sensor readings AND weight decomposition
 
 if ($temp >= 45 && $temp <= 70 && $ph >= 6.5 && $ph <= 8.0 && $humidity >= 40 && $humidity <= 60) {
-    $stage = "Thermophilic Stage (Active Decomposition)";
-    $stage_desc = "The compost is in its most active phase. High heat indicates rapid microbial activity and pathogen destruction.";
-    
-    // Verify with weight
-    if ($weightLoss < 10) {
-        $stage_desc .= " <strong>Note:</strong> Weight loss is low for this stage. Decomposition just started.";
-    } elseif ($weightLoss >= 20) {
-        $stage_desc .= " <strong>Excellent!</strong> Significant weight loss (" . round($weightLoss, 1) . "%) shows active decomposition.";
-    }
-    
-} elseif ($temp < 40 && $temp >= 15 && $ph >= 7.0 && $ph <= 8.0 && $gas < 100) {
-    $stage = "Maturation Stage (Curing)";
-    $stage_desc = "Temperature is cooling down. Compost is stabilizing and turning into nutrient-rich humus.";
-    
-    // Verify with weight
-    if ($weightLoss >= 40) {
-        $stage_desc .= " <strong>Nearly ready!</strong> Weight has reduced by " . round($weightLoss, 1) . "%, indicating mature compost.";
-    } elseif ($weightLoss >= 25) {
-        $stage_desc .= " Weight reduced by " . round($weightLoss, 1) . "%. Getting close to finished compost.";
-    } else {
-        $stage_desc .= " <strong>Warning:</strong> Weight loss (" . round($weightLoss, 1) . "%) seems low for maturation stage. May need more time.";
-    }
-    
+  $stage = "Thermophilic Stage (Active Decomposition)";
+  $stage_desc = "The compost is in its most active phase. High heat indicates rapid microbial activity and pathogen destruction.";
+} elseif ($temp < 40 && $ph >= 7.0 && $ph <= 8.0 && $humidity <= 50 && $gas < 100) {
+  $stage = "Maturation Stage (Curing)";
+  $stage_desc = "Temperature is cooling down. Compost is stabilizing and turning into nutrient-rich humus.";
 } elseif ($temp >= 20 && $temp < 45 && $ph >= 5.5 && $ph < 6.5) {
-    $stage = "Mesophilic Stage (Initial)";
-    $stage_desc = "The composting process has just started. Microbes are breaking down simple organic materials.";
-    
-    if ($weightLoss < 15) {
-        $stage_desc .= " Weight loss: " . round($weightLoss, 1) . "%. This is normal for the initial stage.";
-    }
-    
+  $stage = "Mesophilic Stage (Initial)";
+  $stage_desc = "The composting process has just started. Microbes are breaking down simple organic materials.";
 } else {
-    $stage = "Transition Stage";
-    
-    // Use weight to provide better insight
-    if ($weightLoss >= 35) {
-        $stage_desc = "Despite mixed sensor readings, significant weight loss (" . round($weightLoss, 1) . "%) suggests advanced decomposition. Compost may be nearing readiness.";
-    } elseif ($weightLoss >= 20) {
-        $stage_desc = "Readings suggest the compost is moving between phases. Moderate weight loss (" . round($weightLoss, 1) . "%) shows good progress.";
-    } else {
-        $stage_desc = "Readings suggest the compost is moving between phases. Weight loss: " . round($weightLoss, 1) . "%. Continue monitoring.";
-    }
+  $stage = "Transition Stage";
+  $stage_desc = "Readings suggest the compost is moving between phases. Continue monitoring sensor changes.";
 }
-
-// Add weight loss indicator
-$weightLossIndicator = "<div class='mt-2 small-muted'><strong>Decomposition Progress:</strong> " . 
-                       round($weightLoss, 1) . "% weight reduction from initial " . 
-                       round($initialWeight, 2) . " kg</div>";
 
 include 'sideabr.php'; 
 ?>
@@ -506,16 +365,62 @@ include 'sideabr.php';
   </div>
 </div>
 
+<!-- ── Sensor History Chart ── -->
+<div class="card p-4 mt-2 mx-3 history-card" id="historyChartCard">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h5 class="mb-0 fw-bold">📈 Sensor History</h5>
+    <div class="d-flex gap-2 flex-wrap">
+      <select id="chartSensorSelect" class="form-select form-select-sm" style="width:auto">
+        <option value="temperature">🌡️ Temperature</option>
+        <option value="humidity">💧 Humidity</option>
+        <option value="gas">💨 Gas Level</option>
+        <option value="ph">⚗️ pH</option>
+        <option value="weight">⚖️ Weight</option>
+      </select>
+      <select id="chartRangeSelect" class="form-select form-select-sm" style="width:auto">
+        <option value="1h">Last 1 hour</option>
+        <option value="6h">Last 6 hours</option>
+        <option value="24h" selected>Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+      </select>
+      <button id="refreshHistoryBtn" class="btn btn-sm btn-outline-success">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div style="position:relative; height:280px;">
+    <canvas id="historyChart"></canvas>
+  </div>
+
+  <div class="row g-3 mt-2 text-center" id="historyStats">
+    <div class="col-4">
+      <div class="small-muted">Average</div>
+      <div class="fw-bold fs-5" id="statAvg">--</div>
+    </div>
+    <div class="col-4">
+      <div class="small-muted">Min</div>
+      <div class="fw-bold fs-5 text-info" id="statMin">--</div>
+    </div>
+    <div class="col-4">
+      <div class="small-muted">Max</div>
+      <div class="fw-bold fs-5 text-danger" id="statMax">--</div>
+    </div>
+  </div>
+
+  <div id="historyChartMsg" class="text-center text-muted small mt-2" style="display:none">
+    No aggregated data yet — run aggregate.php to populate history.
+  </div>
+</div>
+
+<!-- ── Mixer Controls ── -->
 <div class="text-center mt-5 mb-4">
   <div id="mixerAlert" class="mixer-alert"></div>
   
-  <!-- Unauthorized Message -->
   <div id="unauthorizedMessage" class="unauthorized-message">
     <i class="fas fa-lock me-2"></i>
     You are not authorized to control the mixer. Only verified accounts can access this feature.
   </div>
   
-  <!-- Mixer Controls (Hidden for unverified users) -->
   <div id="mixerControls">
     <div id="mixerToggle" 
          style="width:70px;height:36px;background:#cfd8cf;border-radius:20px;position:relative;cursor:pointer;margin:auto;">
@@ -527,7 +432,7 @@ include 'sideabr.php';
   </div>
 </div>
 
-</div>
+</div><!-- end .main -->
 
 <script>
 const ctx = document.getElementById('progressChart').getContext('2d');
@@ -556,100 +461,88 @@ function statusGlow(card, value, warnAt, critAt){
   else card.classList.add('ok-glow');
 }
 
-// ==================== COMPLETE REPLACEMENT FOR updateChart() FUNCTION ====================
-// Find the existing updateChart() function in your index.php and REPLACE IT ENTIRELY with this:
-
 function updateChart(){
-  console.log('🔄 Fetching prediction data...');
-  
   fetch('predict_readiness.php',{cache:'no-store'})
-    .then(r=>r.json())
-    .then(data=>{
-      console.log('📊 Full API Response:', data);
-      
-      // ========== UPDATE READINESS CHART ==========
-      const readiness = clamp(parseFloat(data.readiness)||0, 0, 100);
-      console.log('📈 Readiness score:', readiness);
-      
-      chart.data.datasets[0].data = [readiness, 100-readiness];
+    .then(r=>r.json()).then(data=>{
+      const readiness = clamp(parseFloat(data.readiness)||0,0,100);
+      chart.data.datasets[0].data=[readiness,100-readiness];
       chart.update();
       document.getElementById('readinessLabel').textContent = readiness.toFixed(1)+'%';
-      
-      const statusEl = document.getElementById('readinessStatus');
-      const chartCard = document.getElementById('chartCard');
+      const statusEl=document.getElementById('readinessStatus');
+      const chartCard=document.getElementById('chartCard');
       chartCard.classList.remove('ok-glow','warn-glow','crit-glow');
+      if(readiness>=90){ statusEl.textContent='🌿 Compost ready!'; chartCard.classList.add('ok-glow'); }
+      else if(readiness>=60){ statusEl.textContent='🌱 Almost ready'; chartCard.classList.add('warn-glow'); }
+      else if(readiness>=30){ statusEl.textContent='🔥 Heating up'; }
+      else { statusEl.textContent='🧤 Just started'; }
       
-      if(readiness >= 90){ 
-        statusEl.textContent = '🌿 Compost ready!'; 
-        chartCard.classList.add('ok-glow'); 
-      } else if(readiness >= 60){ 
-        statusEl.textContent = '🌱 Almost ready'; 
-        chartCard.classList.add('warn-glow'); 
-      } else if(readiness >= 30){ 
-        statusEl.textContent = '🔥 Heating up'; 
-      } else { 
-        statusEl.textContent = '🧤 Just started'; 
-      }
-      
-      // ========== GET WEIGHT DATA FROM API ==========
-      const weightTracking = data.weight_tracking || {};
-      const currentWeight = parseFloat(weightTracking.current_weight) || 0;
-      const initialWeight = parseFloat(weightTracking.initial_weight) || 0;
-      const weightLossPercent = parseFloat(weightTracking.weight_loss_percent) || 0;
-      const weightLossKg = parseFloat(weightTracking.weight_loss_kg) || 0;
-      
-      console.log('⚖️ Weight Data:');
-      console.log('  - Initial:', initialWeight, 'kg');
-      console.log('  - Current:', currentWeight, 'kg');
-      console.log('  - Loss:', weightLossKg, 'kg ('+weightLossPercent+'%)');
-      
-      // ========== UPDATE FERTILIZER OUTPUT ==========
-      const fertilizerOutput = data.fertilizer_output || {};
-      const predictedOutput = parseFloat(fertilizerOutput.predicted_output_kg) || 0;
-      const actualOutput = parseFloat(fertilizerOutput.actual_output_kg) || 0;
-      const isReady = fertilizerOutput.is_ready || false;
-      
-      console.log('🌾 Fertilizer Output:');
-      console.log('  - Predicted:', predictedOutput, 'kg');
-      console.log('  - Actual:', actualOutput, 'kg');
-      console.log('  - Ready:', isReady);
-      
-      // Display predicted output
-      const predictedEl = document.getElementById('predictedOutput');
-      if (predictedEl) {
-        predictedEl.textContent = predictedOutput.toFixed(4) + ' kg';
-      }
-      
-      // Display actual output (only when ready)
-      const actualOutputEl = document.getElementById('actualOutput');
-      if (actualOutputEl) {
-        if (isReady) {
-          actualOutputEl.textContent = actualOutput.toFixed(4) + ' kg';
-          actualOutputEl.classList.remove('text-primary');
-          actualOutputEl.classList.add('text-success', 'fw-bold');
-        } else {
-          actualOutputEl.textContent = 'Not ready yet';
-          actualOutputEl.classList.remove('text-success', 'fw-bold');
-          actualOutputEl.classList.add('text-primary');
-        }
-      }
-      
-      // Update fertilizer bar
-      const fertPercentage = parseFloat(fertilizerOutput.fertilizer_percentage) || 0;
-      const fertBar = document.getElementById('fertBar');
-      if (fertBar) {
-        fertBar.style.width = clamp(fertPercentage, 0, 100) + '%';
-      }
-      
-      console.log('✅ Chart update complete!');
-      
-    })
-    .catch(e => {
-      console.error('❌ Chart update error:', e);
-    });
+      const weight = parseFloat(window.currentWeight) || 0;
+      const capacity = parseFloat(window.currentCapacity) || 1;
+      const predicted = (weight * (readiness/100) * 0.5);
+      const actual = readiness>=100 ? (weight*0.5) : 0;
+      document.getElementById('predictedOutput').textContent = predicted.toFixed(2)+' kg';
+      document.getElementById('actualOutput').textContent = readiness>=100 ? actual.toFixed(2)+' kg' : 'Not ready yet';
+      document.getElementById('fertBar').style.width = (capacity>0? clamp((predicted/capacity)*100,0,100):0) + '%';
+    }).catch(e => console.error('Chart update error:', e));
 }
 
-// Initialize - call immediately and then every 10 seconds
+// ==================== FIREBASE REAL-TIME LISTENERS ====================
+window.setupFirebaseListeners = function() {
+  const database = window.firebaseDatabase;
+  console.log('🔥 Setting up Firebase real-time listeners...');
+  
+  const tempRef = window.firebaseRef(database, 'sensors/temperature/latest');
+  window.firebaseOnValue(tempRef, (snapshot) => {
+    const temperature = snapshot.val() || 0;
+    document.getElementById('tempValue').textContent = temperature.toFixed(1) + ' °C';
+    document.getElementById('tempFill').style.width = clamp(temperature, 0, 100) + '%';
+    statusGlow(document.getElementById('tempCard'), temperature, 60, 65);
+  });
+
+  const humRef = window.firebaseRef(database, 'sensors/humidity/latest');
+  window.firebaseOnValue(humRef, (snapshot) => {
+    const humidity = snapshot.val() || 0;
+    document.getElementById('humValue').textContent = humidity.toFixed(1) + ' %';
+    document.getElementById('humFill').style.width = clamp(humidity, 0, 100) + '%';
+    statusGlow(document.getElementById('humCard'), humidity, 80, 90);
+  });
+
+  const gasRef = window.firebaseRef(database, 'sensors/gas/latest');
+  window.firebaseOnValue(gasRef, (snapshot) => {
+    const gas = snapshot.val() || 0;
+    document.getElementById('gasValue').textContent = gas.toFixed(2) + ' ppm';
+    document.getElementById('gasFill').style.width = clamp(gas / 10, 0, 100) + '%';
+    statusGlow(document.getElementById('gasCard'), gas, 600, 800);
+  });
+
+  const phRef = window.firebaseRef(database, 'sensors/ph/latest');
+  window.firebaseOnValue(phRef, (snapshot) => {
+    const ph = snapshot.val() || 0;
+    document.getElementById('phValue').textContent = ph.toFixed(1);
+    document.getElementById('phFill').style.width = clamp((ph / 14) * 100, 0, 100) + '%';
+    const phCard = document.getElementById('phCard');
+    phCard.classList.remove('ok-glow', 'warn-glow', 'crit-glow');
+    if (ph < 6.5 || ph > 8.0) phCard.classList.add('warn-glow');
+    else phCard.classList.add('ok-glow');
+  });
+
+  const weightRef = window.firebaseRef(database, 'sensors/weight/latest');
+  window.firebaseOnValue(weightRef, (snapshot) => {
+    const weight = snapshot.val() || 0;
+    window.currentWeight = weight;
+    document.getElementById('currentWeightDisplay').textContent = weight.toFixed(4) + ' kg';
+    const capacity = window.currentCapacity || 100;
+    setBar('weightBar', weight, Math.max(capacity, 1000), document.getElementById('weightCard'));
+  });
+
+  window.currentCapacity = 100;
+  document.getElementById('capacityDisplay').textContent = '100';
+  console.log('✅ All Firebase listeners initialized!');
+}
+
+window.currentWeight = <?php echo (float)$currentWeight; ?>;
+window.currentCapacity = <?php echo (float)$capacity; ?>;
+
 updateChart();
 setInterval(updateChart, 10000);
 
@@ -660,18 +553,14 @@ function loadSensorStatus() {
             const container = document.getElementById("sensor-status-container");
             if (!container) return;
             container.innerHTML = "";
-
             let faultyCount = 0;
-
             data.forEach(sensor => {
                 if (sensor.class === "faulty") faultyCount++;
-
                 let icon = "📡";
                 if (sensor.name === "Temperature") icon = "🌡️";
                 if (sensor.name === "Humidity") icon = "💧";
                 if (sensor.name === "Gas") icon = "🔥";
                 if (sensor.name === "pH") icon = "⚗️";
-
                 container.innerHTML += `
                     <div class="sensor-top-badge ${sensor.class}">
                         <span class="icon">${icon}</span>
@@ -682,7 +571,6 @@ function loadSensorStatus() {
                     </div>
                 `;
             });
-
             const faultyTextEl = document.getElementById("faultyText");
             if (faultyTextEl) {
                 faultyTextEl.textContent = `${faultyCount} Faulty Sensor${faultyCount !== 1 ? 's' : ''}`;
@@ -696,21 +584,99 @@ loadSensorStatus();
 
 function updateDateTime() {
     const now = new Date();
-    const options = { 
-        month: "short", 
-        day: "numeric", 
-        year: "numeric", 
-        hour: "2-digit", 
-        minute: "2-digit"
-    };
+    const options = { month:"short", day:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit" };
     const dateTimeEl = document.getElementById("dateTime");
-    if (dateTimeEl) {
-        dateTimeEl.innerHTML = now.toLocaleString("en-US", options);
-    }
+    if (dateTimeEl) dateTimeEl.innerHTML = now.toLocaleString("en-US", options);
 }
-
 setInterval(updateDateTime, 1000);
 updateDateTime();
+
+// ==================== SENSOR HISTORY CHART ====================
+(function () {
+  let historyChartInstance = null;
+
+  function loadHistoryChart() {
+    const sensor = document.getElementById('chartSensorSelect').value;
+    const range  = document.getElementById('chartRangeSelect').value;
+    const btn    = document.getElementById('refreshHistoryBtn');
+    const msg    = document.getElementById('historyChartMsg');
+
+    btn.disabled    = true;
+    btn.textContent = '⏳ Loading...';
+    if (msg) msg.style.display = 'none';
+
+    fetch(`chart_data.php?sensor=${sensor}&range=${range}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(data => {
+        btn.disabled    = false;
+        btn.textContent = '🔄 Refresh';
+
+        if (data.error) { console.error('Chart API error:', data.error); return; }
+
+        const labels = data.labels || [];
+        const avg    = data.datasets?.average || [];
+        const minArr = data.datasets?.min     || [];
+        const maxArr = data.datasets?.max     || [];
+        const meta   = data.meta || {};
+        const color  = meta.color || '#4CAF50';
+        const unit   = meta.unit  || '';
+
+        if (labels.length === 0 && msg) msg.style.display = 'block';
+
+        if (avg.length) {
+          const totalAvg = avg.reduce((a,b)=>a+b,0)/avg.length;
+          document.getElementById('statAvg').textContent = totalAvg.toFixed(2) + ' ' + unit;
+          document.getElementById('statMin').textContent = Math.min(...minArr).toFixed(2) + ' ' + unit;
+          document.getElementById('statMax').textContent = Math.max(...maxArr).toFixed(2) + ' ' + unit;
+        } else {
+          ['statAvg','statMin','statMax'].forEach(id => document.getElementById(id).textContent = '--');
+        }
+
+        if (historyChartInstance) { historyChartInstance.destroy(); historyChartInstance = null; }
+
+        const hCtx = document.getElementById('historyChart').getContext('2d');
+        historyChartInstance = new Chart(hCtx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              { label: `Avg ${meta.label || sensor} (${unit})`, data: avg,
+                borderColor: color, backgroundColor: color + '22', borderWidth: 2,
+                fill: true, tension: 0.4, pointRadius: labels.length > 50 ? 0 : 3 },
+              { label: 'Min', data: minArr, borderColor: color + '88',
+                borderDash: [4,4], borderWidth: 1, fill: false, pointRadius: 0, tension: 0.4 },
+              { label: 'Max', data: maxArr, borderColor: color + '88',
+                borderDash: [4,4], borderWidth: 1, fill: false, pointRadius: 0, tension: 0.4 },
+            ],
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: true, position: 'bottom' },
+              tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} ${unit}` } }
+            },
+            scales: {
+              x: { ticks: { maxTicksLimit: 10, maxRotation: 0 }, grid: { color: 'rgba(0,0,0,0.05)' } },
+              y: { ticks: { callback: v => v + ' ' + unit }, grid: { color: 'rgba(0,0,0,0.05)' } }
+            }
+          }
+        });
+      })
+      .catch(err => {
+        btn.disabled = false;
+        btn.textContent = '🔄 Refresh';
+        console.error('Failed to load chart data:', err);
+      });
+  }
+
+  document.getElementById('chartSensorSelect').addEventListener('change', loadHistoryChart);
+  document.getElementById('chartRangeSelect').addEventListener('change', loadHistoryChart);
+  document.getElementById('refreshHistoryBtn').addEventListener('click', loadHistoryChart);
+
+  loadHistoryChart();
+  setInterval(loadHistoryChart, 5 * 60 * 1000);
+})();
 </script>
 </body>
 </html>
