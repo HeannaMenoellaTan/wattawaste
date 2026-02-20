@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>WattAWaste Bin</title>
+<title>Leafcycle Bin</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
@@ -42,11 +42,7 @@ onAuthStateChanged(auth, (user) => {
         const userRef = ref(database, `users/${user.uid}`);
         onValue(userRef, (snapshot) => {
             const userData = snapshot.val();
-            console.log('👤 User profile data:', userData);
-            
             const isVerified = userData && userData.isVerified === true;
-            console.log('🔐 Profile verification status:', isVerified);
-            
             sessionStorage.setItem('isAuthorizedForMixer', isVerified);
             
             const mixerControls = document.getElementById('mixerControls');
@@ -69,7 +65,6 @@ onAuthStateChanged(auth, (user) => {
             }
         });
         
-        console.log('🔥 Initializing Firebase listeners...');
         window.setupFirebaseListeners();
         window.initializeMixerControls();
     }
@@ -82,24 +77,19 @@ window.firebaseSet = set;
 window.firebaseOnValue = onValue;
 
 window.initializeMixerControls = function() {
-  console.log('🎛️ Initializing mixer controls...');
-  
   const toggle = document.getElementById('mixerToggle');
   const knob = document.getElementById('mixerKnob');
   const mixerAlert = document.getElementById('mixerAlert');
   const mixerText = document.getElementById('mixerText');
 
-  if (!toggle) {
-    console.error('❌ CRITICAL: Mixer toggle element not found!');
-    return;
-  }
+  if (!toggle) { console.error('❌ Mixer toggle not found!'); return; }
 
   const motorRef = window.firebaseRef(window.firebaseDatabase, 'controls/motor/command');
   const motorStatusRef = window.firebaseRef(window.firebaseDatabase, 'controls/motor/status');
 
   function showMixerAlert(msg, type='success'){
-    mixerAlert.style.display='block'; 
-    mixerAlert.className='mixer-alert '+type; 
+    mixerAlert.style.display='block';
+    mixerAlert.className='mixer-alert '+type;
     mixerAlert.textContent=msg;
     setTimeout(()=>mixerAlert.style.display='none', 4500);
   }
@@ -112,14 +102,14 @@ window.initializeMixerControls = function() {
   }
 
   function applyMixerUI(){
-    if(mixerData.on){ 
-      knob.style.left='36px'; 
-      toggle.style.background='#4caf50'; 
-      mixerText.textContent='Mixer is ON'; 
-    } else { 
-      knob.style.left='4px'; 
-      toggle.style.background='#cfd8cf'; 
-      mixerText.textContent='Mixer is OFF'; 
+    if(mixerData.on){
+      knob.style.left='36px';
+      toggle.style.background='#4caf50';
+      mixerText.textContent='Mixer is ON';
+    } else {
+      knob.style.left='4px';
+      toggle.style.background='#cfd8cf';
+      mixerText.textContent='Mixer is OFF';
     }
   }
 
@@ -142,115 +132,156 @@ window.initializeMixerControls = function() {
       showMixerAlert('🔒 Access Denied: Please verify your profile to control the mixer.', 'error');
       return;
     }
-    
     if (!mixerData.on) {
-      if (mixerData.count >= 2) { 
-        showMixerAlert('⚠️ You can only turn the mixer ON twice per day.', 'warning'); 
-        return; 
-      }
+      if (mixerData.count >= 2) { showMixerAlert('⚠️ You can only turn the mixer ON twice per day.', 'warning'); return; }
       try {
         await window.firebaseSet(motorRef, true);
         mixerData.on = true; mixerData.count++; mixerData.date = today;
-        localStorage.setItem('mixerData', JSON.stringify(mixerData)); 
-        applyMixerUI(); 
+        localStorage.setItem('mixerData', JSON.stringify(mixerData));
+        applyMixerUI();
         showMixerAlert(`✅ Mixer turned ON (${mixerData.count}/2)`, 'success');
-      } catch (error) {
-        showMixerAlert('❌ Failed to turn on mixer: ' + error.message, 'error');
-      }
+      } catch (error) { showMixerAlert('❌ Failed to turn on mixer: ' + error.message, 'error'); }
     } else {
       try {
         await window.firebaseSet(motorRef, false);
-        mixerData.on = false; 
+        mixerData.on = false;
         localStorage.setItem('mixerData', JSON.stringify(mixerData));
-        applyMixerUI(); 
+        applyMixerUI();
         showMixerAlert('🛑 Mixer turned OFF', 'error');
-      } catch (error) {
-        showMixerAlert('❌ Failed to turn off mixer: ' + error.message, 'error');
-      }
+      } catch (error) { showMixerAlert('❌ Failed to turn off mixer: ' + error.message, 'error'); }
     }
   });
-  
-  console.log('✅ Mixer controls initialized successfully');
 };
 </script>
 
 <?php include_once 'notif_bell.php'; ?>
 
 <style>
-  :root{
-    --brand:#4CAF50; --brand-dark:#2E7D32; --ink:#333;
-    --panel:#fff; --muted:#555; --bg:#F9FAFB;
-    --ok:#22c55e; --warn:#f59e0b; --crit:#ef4444; --info:#38bdf8;}
-  
-  body{background:var(--bg);font-family:Poppins,system-ui,Segoe UI,Arial;color:var(--ink);min-height:100vh}
- 
-  .card{border:none;border-radius:16px;background:var(--panel);
-        box-shadow:0 6px 16px rgba(2,6,23,.06);transition:transform .2s, box-shadow .2s}
-  .card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(2,6,23,.12)}
-  .chart-container{position:relative;width:320px;max-width:100%;aspect-ratio:1/1;margin:auto}
-  .chart-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center}
-  .chart-label #readinessLabel{font-weight:800;font-size:28px;line-height:1}
-  .chart-label #readinessStatus{color:var(--muted);font-size:.95rem}
+:root{
+  --brand:#4CAF50; --brand-dark:#2E7D32; --ink:#333;
+  --panel:#fff; --muted:#555; --bg:#F9FAFB;
+  --ok:#22c55e; --warn:#f59e0b; --crit:#ef4444; --info:#38bdf8;
+}
 
-  .bar-container{width:100%;background:#E9ECEF;height:12px;border-radius:10px;overflow:hidden;position:relative}
-  .bar{height:100%;width:0%;border-radius:10px;transition:width .9s ease}
-  .bar::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
-              background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
-              animation:shimmer 1.8s infinite}
-  @keyframes shimmer{50%{transform:translateX(0)}100%{transform:translateX(100%)}}
+body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color:var(--ink); min-height:100vh; }
 
-  .small-muted{color:var(--muted);opacity:.9;font-size:.92rem}
+.card {
+  border:none; border-radius:16px; background:var(--panel);
+  box-shadow:0 6px 16px rgba(2,6,23,.06); transition:transform .2s, box-shadow .2s;
+}
+.card:hover { transform:translateY(-3px); box-shadow:0 12px 26px rgba(2,6,23,.12); }
 
-  .dashboard-container{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:20px;padding:20px}
-  .sensor-card{position:relative;border-radius:18px;padding:22px;text-align:center;color:#0f172a;background:#ffffff}
-  .sensor-card .icon-wrap{
-    width:58px;height:58px;border-radius:50%;display:grid;place-items:center;margin:0 auto 10px;
-    background:#E8F5E9;position:relative;
-    box-shadow:0 0 0 0 rgba(76,175,80,.5);animation:ringPulse 2.6s infinite;
-  }
-  @keyframes ringPulse{
-    0%{box-shadow:0 0 0 0 rgba(76,175,80,.42)}
-    70%{box-shadow:0 0 0 14px rgba(76,175,80,0)}
-    100%{box-shadow:0 0 0 0 rgba(76,175,80,0)}
-  }
-  .sensor-card .icon{font-size:28px;color:var(--brand-dark)}
-  .sensor-card h3{margin:.25rem 0 .25rem}
-  .sensor-card .value{font-size:26px;font-weight:800;margin-bottom:12px}
- 
-  .thermo-meter,.droplet-meter,.gas-meter,.ph-meter{
-    width:100%;height:18px;border-radius:50px;background:#f1f5f9;overflow:hidden;position:relative}
-  .thermo-fill{height:100%;width:0%;background:linear-gradient(90deg,#ff7b00,#ff0000);
-               box-shadow:0 0 12px rgba(255,90,0,.45);transition:width 1s ease}
-  .droplet-fill{height:100%;width:0%;background:linear-gradient(90deg,#00b4d8,#48cae4);
-                box-shadow:0 0 10px rgba(0,180,216,.45);transition:width 1s ease}
-  .gas-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffba08,#f48c06);
-            box-shadow:0 0 10px rgba(244,140,6,.45);transition:width 1s ease}
-  .ph-fill{height:100%;width:0%;background:linear-gradient(90deg,#ff0000,#ffae00,#00ff00,#0088ff,#4b0082);
-           transition:width 1s ease}
+/* ── Donut Chart ── */
+.chart-container { position:relative; width:min(320px,100%); aspect-ratio:1/1; margin:auto; }
+.chart-label { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; }
+.chart-label #readinessLabel { font-weight:800; font-size:clamp(20px, 6vw, 28px); line-height:1; }
+.chart-label #readinessStatus { color:var(--muted); font-size:.9rem; }
 
-  .ok-glow{box-shadow:0 0 0 0 rgba(34,197,94,.45), 0 14px 34px rgba(34,197,94,.12)}
-  .warn-glow{box-shadow:0 0 0 0 rgba(245,158,11,.45), 0 14px 34px rgba(245,158,11,.12)}
-  .crit-glow{box-shadow:0 0 0 0 rgba(239,68,68,.55), 0 16px 36px rgba(239,68,68,.18); animation:shake .4s ease}
-  @keyframes shake{20%{transform:translateX(-2px)} 40%{transform:translateX(2px)} 60%{transform:translateX(-1px)} 80%{transform:translateX(1px)}}
+/* ── Progress bars ── */
+.bar-container { width:100%; background:#E9ECEF; height:12px; border-radius:10px; overflow:hidden; position:relative; }
+.bar { height:100%; width:0%; border-radius:10px; transition:width .9s ease; }
+.bar::after {
+  content:""; position:absolute; inset:0; transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+  animation:shimmer 1.8s infinite;
+}
+@keyframes shimmer { 50%{transform:translateX(0)} 100%{transform:translateX(100%)} }
 
-  .mixer-alert{position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:1500;display:none;
-    padding:10px 14px;border-radius:10px;font-weight:600}
-  .mixer-alert.success{background:#E9F8EC;color:#256333;border-left:6px solid var(--brand-dark)}
-  .mixer-alert.warning{background:#FFF8E1;color:#7A5A00;border-left:6px solid #fbbf24}
-  .mixer-alert.error{background:#FFE5E5;color:#7F1D1D;border-left:6px solid #ef4444}
-  
-  .unauthorized-message{
-    background:#FFF8E1;border:2px solid #fbbf24;border-radius:12px;
-    padding:16px 20px;color:#7A5A00;font-weight:600;text-align:center;display:none;}
-  .unauthorized-message a{color:#E65100;text-decoration:underline;font-weight:700;}
-  .unauthorized-message a:hover{color:#BF360C;}
-  .mixer-disabled{opacity:0.5;cursor:not-allowed !important;pointer-events:none;}
-  #mixerToggle{cursor:pointer !important;pointer-events:auto !important;z-index:1000;}
-  #mixerToggle:hover{opacity:0.9;transform:scale(1.05);transition:all 0.2s ease;}
+.small-muted { color:var(--muted); opacity:.9; font-size:.92rem; }
 
-  /* ── History Chart Card ── */
-  .history-card select, .history-card .btn{font-size:.85rem;}
-  #historyChartMsg{font-size:.85rem;}
+/* ── Sensor Cards Grid ── */
+.dashboard-container {
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap:16px;
+  padding:16px;
+}
+.sensor-card {
+  position:relative; border-radius:18px; padding:20px;
+  text-align:center; color:#0f172a; background:#ffffff;
+  box-shadow:0 6px 16px rgba(2,6,23,.06);
+}
+.sensor-card .icon-wrap {
+  width:52px; height:52px; border-radius:50%; display:grid; place-items:center;
+  margin:0 auto 10px; background:#E8F5E9; position:relative;
+  box-shadow:0 0 0 0 rgba(76,175,80,.5); animation:ringPulse 2.6s infinite;
+}
+@keyframes ringPulse {
+  0%{box-shadow:0 0 0 0 rgba(76,175,80,.42)}
+  70%{box-shadow:0 0 0 14px rgba(76,175,80,0)}
+  100%{box-shadow:0 0 0 0 rgba(76,175,80,0)}
+}
+.sensor-card .icon { font-size:24px; color:var(--brand-dark); }
+.sensor-card h3 { margin:.25rem 0 .25rem; font-size:clamp(.9rem, 2.5vw, 1rem); }
+.sensor-card .value { font-size:clamp(20px, 5vw, 26px); font-weight:800; margin-bottom:12px; }
+
+/* ── Sensor fill bars ── */
+.thermo-meter,.droplet-meter,.gas-meter,.ph-meter {
+  width:100%; height:14px; border-radius:50px; background:#f1f5f9; overflow:hidden; position:relative;
+}
+.thermo-fill { height:100%; width:0%; background:linear-gradient(90deg,#ff7b00,#ff0000); box-shadow:0 0 12px rgba(255,90,0,.45); transition:width 1s ease; }
+.droplet-fill { height:100%; width:0%; background:linear-gradient(90deg,#00b4d8,#48cae4); box-shadow:0 0 10px rgba(0,180,216,.45); transition:width 1s ease; }
+.gas-fill { height:100%; width:0%; background:linear-gradient(90deg,#ffba08,#f48c06); box-shadow:0 0 10px rgba(244,140,6,.45); transition:width 1s ease; }
+.ph-fill { height:100%; width:0%; background:linear-gradient(90deg,#ff0000,#ffae00,#00ff00,#0088ff,#4b0082); transition:width 1s ease; }
+
+/* ── Glow states ── */
+.ok-glow   { box-shadow:0 0 0 0 rgba(34,197,94,.45), 0 14px 34px rgba(34,197,94,.12); }
+.warn-glow { box-shadow:0 0 0 0 rgba(245,158,11,.45), 0 14px 34px rgba(245,158,11,.12); }
+.crit-glow { box-shadow:0 0 0 0 rgba(239,68,68,.55), 0 16px 36px rgba(239,68,68,.18); animation:shake .4s ease; }
+@keyframes shake {
+  20%{transform:translateX(-2px)} 40%{transform:translateX(2px)}
+  60%{transform:translateX(-1px)} 80%{transform:translateX(1px)}
+}
+
+/* ── Mixer ── */
+.mixer-alert {
+  position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:1500;
+  display:none; padding:10px 16px; border-radius:10px; font-weight:600;
+  max-width: calc(100vw - 32px); text-align:center;
+}
+.mixer-alert.success { background:#E9F8EC; color:#256333; border-left:6px solid var(--brand-dark); }
+.mixer-alert.warning { background:#FFF8E1; color:#7A5A00; border-left:6px solid #fbbf24; }
+.mixer-alert.error   { background:#FFE5E5; color:#7F1D1D; border-left:6px solid #ef4444; }
+
+.unauthorized-message {
+  background:#FFF8E1; border:2px solid #fbbf24; border-radius:12px;
+  padding:14px 18px; color:#7A5A00; font-weight:600; text-align:center; display:none;
+  margin: 0 16px;
+}
+.unauthorized-message a { color:#E65100; text-decoration:underline; font-weight:700; }
+
+/* ── History Chart ── */
+.history-card select, .history-card .btn { font-size:.85rem; }
+#historyChartMsg { font-size:.85rem; }
+
+/* ── Main layout ── */
+.main { margin-left:260px; padding:20px; min-height:100vh; }
+
+/* ── Top section layout ── */
+.top-section { display:grid; grid-template-columns: 2fr 3fr; gap:20px; align-items:start; padding:0 0 20px; }
+.top-section .right-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.top-section .right-grid .stage-card { grid-column: 1 / -1; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .main { margin-left:0; padding:70px 12px 20px; }
+
+  .top-section { grid-template-columns:1fr; }
+  .top-section .right-grid { grid-template-columns:1fr 1fr; }
+
+  .dashboard-container { grid-template-columns:1fr 1fr; gap:12px; padding:0 0 12px; }
+  .sensor-card { padding:14px 10px; }
+
+  .history-card .d-flex.gap-2 { flex-direction:column; }
+  .history-card select, .history-card .btn { width:100% !important; }
+
+  .chart-container { width:min(260px,85vw); }
+}
+
+@media (max-width: 400px) {
+  .dashboard-container { grid-template-columns:1fr; }
+  .top-section .right-grid { grid-template-columns:1fr; }
+}
 </style>
 </head>
 <body>
@@ -290,51 +321,52 @@ include 'sideabr.php';
 ?>
 
 <div class="main">
-<?php include 'topnav.php';?>
+<?php include 'topnav.php'; ?>
 
-<div class="row g-4 align-items-center">
-  <div class="col-lg-5">
-    <div class="card p-3 chart-container" id="chartCard">
-      <canvas id="progressChart" aria-label="Compost Readiness"></canvas>
-      <div class="chart-label">
-        <div id="readinessLabel">--%</div>
-        <div id="readinessStatus" class="small-muted">Loading...</div>
-      </div>
+<!-- Top Section -->
+<div class="top-section">
+  <!-- Donut Chart -->
+  <div class="card p-3 chart-container" id="chartCard">
+    <canvas id="progressChart" aria-label="Compost Readiness"></canvas>
+    <div class="chart-label">
+      <div id="readinessLabel">--%</div>
+      <div id="readinessStatus" class="small-muted">Loading...</div>
     </div>
   </div>
 
-  <div class="col-lg-7">
-    <div class="row g-3">
-      <div class="col-md-6">
-        <div class="card p-3" id="weightCard">
-          <small class="small-muted">Current Waste Weight</small>
-          <h4 class="mb-1" id="currentWeightDisplay"><?php echo $currentWeight; ?> kg</h4>
-          <div class="small-muted mb-2">Capacity: <span id="capacityDisplay"><?php echo $capacity; ?></span> kg</div>
-          <div class="bar-container"><div id="weightBar" class="bar" style="background:linear-gradient(90deg,#81C784,#4CAF50)"></div></div>
-        </div>
-      </div>
-      <div class="col-md-6">
-        <div id="fertCard" class="card p-3">
-          <small class="small-muted fw-bold">🌾 Fertilizer Output</small>
-          <div class="mt-2">
-            <div class="d-flex justify-content-between"><span>Predicted Output:</span><span id="predictedOutput" class="fw-bold text-success">-- kg</span></div>
-            <div class="d-flex justify-content-between"><span>Actual Output:</span><span id="actualOutput" class="fw-bold text-primary">--</span></div>
-          </div>
-          <div class="bar-container mt-3"><div id="fertBar" class="bar" style="background:linear-gradient(90deg,#a7f3d0,#10b981)"></div></div>
-        </div>
-      </div>
+  <!-- Right Cards -->
+  <div class="right-grid">
+    <div class="card p-3" id="weightCard">
+      <small class="small-muted">Current Waste Weight</small>
+      <h4 class="mb-1" id="currentWeightDisplay"><?php echo $currentWeight; ?> kg</h4>
+      <div class="small-muted mb-2">Capacity: <span id="capacityDisplay"><?php echo $capacity; ?></span> kg</div>
+      <div class="bar-container"><div id="weightBar" class="bar" style="background:linear-gradient(90deg,#81C784,#4CAF50)"></div></div>
+    </div>
 
-      <div class="col-12">
-        <div class="card p-3">
-          <small class="small-muted fw-bold">🧬 Compost Stage</small>
-          <h4 class="mt-2 text-success" id="compostStage"><?php echo $stage; ?></h4>
-          <div class="mt-1" id="compostStageDesc"><?php echo $stage_desc; ?></div>
+    <div id="fertCard" class="card p-3">
+      <small class="small-muted fw-bold">🌾 Fertilizer Output</small>
+      <div class="mt-2">
+        <div class="d-flex justify-content-between flex-wrap gap-1">
+          <span>Predicted:</span>
+          <span id="predictedOutput" class="fw-bold text-success">-- kg</span>
+        </div>
+        <div class="d-flex justify-content-between flex-wrap gap-1">
+          <span>Actual:</span>
+          <span id="actualOutput" class="fw-bold text-primary">--</span>
         </div>
       </div>
+      <div class="bar-container mt-3"><div id="fertBar" class="bar" style="background:linear-gradient(90deg,#a7f3d0,#10b981)"></div></div>
+    </div>
+
+    <div class="card p-3 stage-card">
+      <small class="small-muted fw-bold">🧬 Compost Stage</small>
+      <h5 class="mt-2 text-success" id="compostStage"><?php echo $stage; ?></h5>
+      <div id="compostStageDesc" class="small"><?php echo $stage_desc; ?></div>
     </div>
   </div>
 </div>
 
+<!-- Sensor Cards -->
 <div class="dashboard-container">
   <div class="sensor-card" id="tempCard">
     <div class="icon-wrap"><i class="icon fas fa-thermometer-half"></i></div>
@@ -365,19 +397,19 @@ include 'sideabr.php';
   </div>
 </div>
 
-<!-- ── Sensor History Chart ── -->
-<div class="card p-4 mt-2 mx-3 history-card" id="historyChartCard">
+<!-- Sensor History Chart -->
+<div class="card p-3 p-md-4 mt-2 mx-0 history-card" id="historyChartCard">
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <h5 class="mb-0 fw-bold">📈 Sensor History</h5>
-    <div class="d-flex gap-2 flex-wrap">
-      <select id="chartSensorSelect" class="form-select form-select-sm" style="width:auto">
+    <div class="d-flex gap-2 flex-wrap w-100 w-md-auto">
+      <select id="chartSensorSelect" class="form-select form-select-sm" style="width:auto;flex:1;min-width:130px">
         <option value="temperature">🌡️ Temperature</option>
         <option value="humidity">💧 Humidity</option>
         <option value="gas">💨 Gas Level</option>
         <option value="ph">⚗️ pH</option>
         <option value="weight">⚖️ Weight</option>
       </select>
-      <select id="chartRangeSelect" class="form-select form-select-sm" style="width:auto">
+      <select id="chartRangeSelect" class="form-select form-select-sm" style="width:auto;flex:1;min-width:120px">
         <option value="1h">Last 1 hour</option>
         <option value="6h">Last 6 hours</option>
         <option value="24h" selected>Last 24 hours</option>
@@ -388,22 +420,22 @@ include 'sideabr.php';
     </div>
   </div>
 
-  <div style="position:relative; height:280px;">
+  <div style="position:relative; height:clamp(200px,40vw,280px);">
     <canvas id="historyChart"></canvas>
   </div>
 
   <div class="row g-3 mt-2 text-center" id="historyStats">
     <div class="col-4">
       <div class="small-muted">Average</div>
-      <div class="fw-bold fs-5" id="statAvg">--</div>
+      <div class="fw-bold fs-6" id="statAvg">--</div>
     </div>
     <div class="col-4">
       <div class="small-muted">Min</div>
-      <div class="fw-bold fs-5 text-info" id="statMin">--</div>
+      <div class="fw-bold fs-6 text-info" id="statMin">--</div>
     </div>
     <div class="col-4">
       <div class="small-muted">Max</div>
-      <div class="fw-bold fs-5 text-danger" id="statMax">--</div>
+      <div class="fw-bold fs-6 text-danger" id="statMax">--</div>
     </div>
   </div>
 
@@ -412,20 +444,17 @@ include 'sideabr.php';
   </div>
 </div>
 
-<!-- ── Mixer Controls ── -->
-<div class="text-center mt-5 mb-4">
+<!-- Mixer Controls -->
+<div class="text-center mt-5 mb-4 px-3">
   <div id="mixerAlert" class="mixer-alert"></div>
   
-  <div id="unauthorizedMessage" class="unauthorized-message">
-    <i class="fas fa-lock me-2"></i>
-    You are not authorized to control the mixer. Only verified accounts can access this feature.
-  </div>
+  <div id="unauthorizedMessage" class="unauthorized-message"></div>
   
   <div id="mixerControls">
     <div id="mixerToggle" 
-         style="width:70px;height:36px;background:#cfd8cf;border-radius:20px;position:relative;cursor:pointer;margin:auto;">
+         style="width:70px;height:36px;background:#cfd8cf;border-radius:20px;position:relative;cursor:pointer;margin:auto;touch-action:manipulation;">
       <div id="mixerKnob" 
-           style="width:30px;height:30px;background:#fff;border-radius:50%;position:absolute;top:3px;left:4px;transition:left .25s;"></div>
+           style="width:30px;height:30px;background:#fff;border-radius:50%;position:absolute;top:3px;left:4px;transition:left .25s;pointer-events:none;"></div>
     </div>
     <div id="mixerText" class="fw-medium mt-2">Mixer is OFF</div>
     <div class="small-muted">You can turn mixer ON twice per day</div>
@@ -448,7 +477,6 @@ function setBar(id, value, max, card){
   const el=document.getElementById(id); if(!el) return;
   const pct = max>0 ? clamp((value/max)*100,0,100) : 0;
   el.style.width = pct + '%';
-  el.parentElement.classList.add('ping'); setTimeout(()=>el.parentElement.classList.remove('ping'), 300);
   if(!card) return;
   card.classList.remove('ok-glow','warn-glow','crit-glow');
   if(pct >= 85) card.classList.add('ok-glow');
@@ -489,7 +517,6 @@ function updateChart(){
 // ==================== FIREBASE REAL-TIME LISTENERS ====================
 window.setupFirebaseListeners = function() {
   const database = window.firebaseDatabase;
-  console.log('🔥 Setting up Firebase real-time listeners...');
   
   const tempRef = window.firebaseRef(database, 'sensors/temperature/latest');
   window.firebaseOnValue(tempRef, (snapshot) => {
@@ -537,7 +564,6 @@ window.setupFirebaseListeners = function() {
 
   window.currentCapacity = 100;
   document.getElementById('capacityDisplay').textContent = '100';
-  console.log('✅ All Firebase listeners initialized!');
 }
 
 window.currentWeight = <?php echo (float)$currentWeight; ?>;
@@ -578,7 +604,6 @@ function loadSensorStatus() {
         })
         .catch(err => console.error("FETCH ERROR:", err));
 }
-
 setInterval(loadSensorStatus, 2000);
 loadSensorStatus();
 
@@ -657,7 +682,7 @@ updateDateTime();
               tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} ${unit}` } }
             },
             scales: {
-              x: { ticks: { maxTicksLimit: 10, maxRotation: 0 }, grid: { color: 'rgba(0,0,0,0.05)' } },
+              x: { ticks: { maxTicksLimit: 8, maxRotation: 0 }, grid: { color: 'rgba(0,0,0,0.05)' } },
               y: { ticks: { callback: v => v + ' ' + unit }, grid: { color: 'rgba(0,0,0,0.05)' } }
             }
           }

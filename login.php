@@ -360,6 +360,7 @@
 
         // Admin email constant
         const ADMIN_EMAIL = 'tan.heannamenoella.rebolledo@gmail.com';
+        const ADMIN_EMAIL = 'quimoragwyneth61501@gmail.com';
 
         // DOM Elements
         const emailTab = document.getElementById('emailTab');
