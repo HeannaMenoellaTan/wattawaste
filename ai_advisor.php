@@ -8,10 +8,151 @@ $gas        = $database->getReference("sensors/gas/latest")->getValue() ?? 0;
 $ph         = $database->getReference("sensors/ph/latest")->getValue() ?? 0;
 $weight     = $database->getReference("sensors/weight/latest")->getValue() ?? 0;
 $initWeight = $database->getReference("sensors/weight/initial")->getValue() ?? $weight;
+$rawSessions = $database->getReference("compost_sessions")->getValue() ?? [];
+
+$sessions = [];
+foreach ($rawSessions as $s) {
+    if (isset($s['temp'], $s['humidity'], $s['gas'], $s['ph'], $s['weightLoss'], $s['daysToReady'])) {
+        $sessions[] = $s;
+    }
+}
 
 $weightLoss = ($initWeight > 0)
     ? max(0, round((($initWeight - $weight) / $initWeight) * 100, 2))
     : 0;
+
+// ── k-NN ML Predictor ─────────────────────────────────────────────────────────
+function knnPredictDays(array $sessions, float $t, float $h, float $g, float $p, float $wl, int $k = 3): ?float {
+    if (empty($sessions)) return null;
+    $dist = [];
+    foreach ($sessions as $i => $s) {
+        $dist[$i] = sqrt(
+            pow(($t - $s['temp'])          / 80,   2) +
+            pow(($h - $s['humidity'])      / 100,  2) +
+            pow(($g - $s['gas'])           / 1000, 2) +
+            pow(($p - $s['ph'])            / 14,   2) +
+            pow(($wl - $s['weightLoss'])   / 100,  2)
+        );
+    }
+    asort($dist);
+    $topK = array_slice(array_keys($dist), 0, $k, true);
+    $ws = 0; $wt = 0;
+    foreach ($topK as $i) {
+        $w   = 1 / max($dist[$i], 0.0001);
+        $ws += $w * $sessions[$i]['daysToReady'];
+        $wt += $w;
+    }
+    return $wt > 0 ? round($ws / $wt, 1) : null;
+}
+
+$predictedDays = knnPredictDays($sessions, (float)$temp, (float)$humidity, (float)$gas, (float)$ph, (float)$weightLoss);
+$sessionCount  = count($sessions);
+
+// ── Readiness Score ───────────────────────────────────────────────────────────
+function calcReadiness(float $t, float $h, float $g, float $p, float $wl): float {
+    $s = 0;
+    // Temperature (25pts)
+    if ($t >= 45 && $t <= 65)      $s += 25;
+    elseif ($t >= 30 && $t < 45)   $s += 12;
+    elseif ($t >= 20 && $t < 30)   $s += 6;
+    // Humidity (20pts)
+    if ($h >= 45 && $h <= 60)      $s += 20;
+    elseif ($h >= 61 && $h <= 69)  $s += 12;
+    elseif ($h >= 35 && $h < 45)   $s += 10;
+    // pH (20pts)
+    if ($p >= 6.5 && $p <= 8.0)    $s += 20;
+    elseif ($p >= 6.0 && $p < 6.5) $s += 10;
+    elseif ($p > 8.0 && $p <= 8.5) $s += 10;
+    // Gas (15pts)
+    if ($g < 300)                   $s += 15;
+    elseif ($g < 600)               $s += 10;
+    elseif ($g < 800)               $s += 5;
+    // Weight loss (20pts)
+    if ($wl >= 40 && $wl <= 60)    $s += 20;
+    elseif ($wl >= 25 && $wl < 40) $s += 12;
+    elseif ($wl > 60)               $s += 16;
+    return min(100, $s);
+}
+$readiness = calcReadiness((float)$temp, (float)$humidity, (float)$gas, (float)$ph, (float)$weightLoss);
+
+// ── Stage Detection ───────────────────────────────────────────────────────────
+function detectStage(float $t, float $p, float $g): array {
+    if ($t > 70)
+        return ['Too Hot',              'toohot',       'Overheating! Ventilation must trigger immediately.'];
+    if ($t >= 45 && $t <= 70 && $p >= 6.5 && $p <= 8.0)
+        return ['Thermophilic Active',  'thermophilic', 'High microbial activity. Pathogens are being destroyed.'];
+    if ($t < 40 && $t >= 20 && $p >= 6.5 && $g < 300)
+        return ['Maturation',           'maturation',   'Compost is stabilizing and forming nutrient-rich humus.'];
+    if ($t >= 20 && $t < 45 && $p >= 5.5 && $p < 6.5)
+        return ['Mesophilic Initial',   'mesophilic',   'Early-stage microbes breaking down simple materials.'];
+    if ($t < 20)
+        return ['Dormant / Too Cold',   'dormant',      'Microbial activity very low. Bin may need insulation.'];
+    return ['Transition',               'transition',   'Compost is moving between phases. Continue monitoring.'];
+}
+[$stageName, $stageKey, $stageDesc] = detectStage((float)$temp, (float)$ph, (float)$gas);
+
+// ── Automation + Recommendations ─────────────────────────────────────────────
+$automations     = [];
+$recommendations = [];
+$phase           = 'aerobic';
+
+// THERMAL: Too Hot
+if ((float)$temp > 70) {
+    $automations[]     = ['icon'=>'🌬️','label'=>'Ventilation','action'=>'OPEN TOP + BOTTOM VENTS',
+        'reason'=>'Temperature '.(float)$temp.'°C exceeds 70°C. Vents opened to prevent microbial death.','severity'=>'crit'];
+    $recommendations[] = '🔥 Critical: Temp above 70°C. Top and bottom vents triggered immediately.';
+}
+// MOISTURE: Critical ≥70%
+if ((float)$humidity >= 70) {
+    $automations[]     = ['icon'=>'⚙️','label'=>'Mixer Motor','action'=>'ENGAGE MOTOR',
+        'reason'=>'Humidity '.(float)$humidity.'% is Critical (≥70%). Motor engaged to evaporate excess moisture.','severity'=>'crit'];
+    $automations[]     = ['icon'=>'🌬️','label'=>'Vents','action'=>'OPEN VENTS',
+        'reason'=>'Airflow increased to aid evaporation.','severity'=>'warn'];
+    $recommendations[] = '💧 Critical moisture ('.(float)$humidity.'%). Mixer + vents auto-activated.';
+}
+// GAS + pH: Anaerobic shift
+if ((float)$gas >= 800 && (float)$ph < 6.0) {
+    $phase             = 'anaerobic';
+    $automations[]     = ['icon'=>'⚙️','label'=>'Mixer Motor','action'=>'ENGAGE MOTOR',
+        'reason'=>'Gas '.(float)$gas.' ppm + pH '.(float)$ph.' indicates anaerobic decay. Aerating mixture.','severity'=>'crit'];
+    $automations[]     = ['icon'=>'🌬️','label'=>'Top Vent','action'=>'OPEN TOP VENT',
+        'reason'=>'Increasing O₂ to restore aerobic decomposition.','severity'=>'warn'];
+    $recommendations[] = '⚠️ Anaerobic shift detected (Gas: '.(float)$gas.' ppm, pH: '.(float)$ph.'). Motor running.';
+} elseif ((float)$gas >= 800) {
+    $recommendations[] = '💨 High gas ('.(float)$gas.' ppm). Monitor pH — if pH drops below 6.0, motor will auto-engage.';
+}
+// Aerobic normal
+if ($phase === 'aerobic' && (float)$humidity < 70 && (float)$temp <= 70 && !((float)$gas >= 800 && (float)$ph < 6.0)) {
+    $automations[] = ['icon'=>'🌀','label'=>'Mode','action'=>'AEROBIC PHASE ACTIVE',
+        'reason'=>'All readings within aerobic range. High oxygen and periodic mixing maintained.','severity'=>'ok'];
+}
+// pH
+if ((float)$ph < 6.0)       $recommendations[] = '⚗️ pH too acidic ('.(float)$ph.'). Add dry leaves or wood ash to raise pH toward 6.5–8.0.';
+elseif ((float)$ph > 8.5)   $recommendations[] = '⚗️ pH too alkaline ('.(float)$ph.'). Add coffee grounds or acidic greens.';
+else                         $recommendations[] = '⚗️ pH is optimal ('.(float)$ph.'). No action needed.';
+// Temperature
+if ((float)$temp < 20)      $recommendations[] = '🌡️ Temp too low ('.(float)$temp.'°C). Add nitrogen-rich material to heat the pile.';
+elseif ((float)$temp >= 45 && (float)$temp <= 70)
+                             $recommendations[] = '🌡️ Temp optimal ('.(float)$temp.'°C). Active decomposition occurring.';
+// Humidity
+if ((float)$humidity < 45)  $recommendations[] = '💧 Humidity too low ('.(float)$humidity.'%). Add ~200ml water to reach 45–60%.';
+elseif ((float)$humidity >= 61 && (float)$humidity <= 69)
+                             $recommendations[] = '💧 Humidity slightly elevated ('.(float)$humidity.'%). Approaching critical threshold of 70%.';
+
+if (count($recommendations) === 1 && strpos($recommendations[0],'⚗️') !== false) {
+    $recommendations[] = '✅ All other readings within optimal range. Continue current routine.';
+}
+
+// ── Params ────────────────────────────────────────────────────────────────────
+$aerationFreq = ((float)$humidity >= 70 || (float)$temp > 70) ? 'Every 2 hours (emergency)' : ((float)$temp >= 45 ? 'Every 4 hours' : 'Every 6 hours');
+$mixerCycles  = ((float)$humidity >= 70 || ((float)$gas >= 800 && (float)$ph < 6.0)) ? '4× per day (auto)' : ((float)$temp >= 45 ? '2× per day' : '1× per day');
+$moistureAct  = ((float)$humidity >= 70) ? 'Open vents + engage motor immediately' : ((float)$humidity < 45 ? 'Add 200ml water evenly' : 'No adjustment needed');
+$phAction     = ((float)$ph < 6.0) ? 'Add wood ash or dry leaves' : ((float)$ph > 8.5 ? 'Add coffee grounds or acidic greens' : 'pH nominal — no action');
+
+$sColors = ['ok'=>'#22c55e','warn'=>'#f59e0b','crit'=>'#ef4444'];
+$ringColor = $readiness >= 80 ? '#4CAF50' : ($readiness >= 50 ? '#f59e0b' : '#ef4444');
+$circ   = 2 * M_PI * 62;
+$offset = $circ - ($readiness / 100) * $circ;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -23,504 +164,322 @@ $weightLoss = ($initWeight > 0)
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
 
-<!-- Firebase Auth + Realtime listeners -->
 <script type="module">
 import { initializeApp }               from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 import { getDatabase, ref, onValue }   from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
-
-const firebaseConfig = {
-    apiKey:            "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
-    authDomain:        "wattawaste-d3503.firebaseapp.com",
-    databaseURL:       "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId:         "wattawaste-d3503",
-    storageBucket:     "wattawaste-d3503.firebasestorage.app",
-    messagingSenderId: "842761118644",
-    appId:             "1:842761118644:web:ddef65fd892486f67f88e1"
+const cfg = {
+    apiKey:"AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
+    authDomain:"wattawaste-d3503.firebaseapp.com",
+    databaseURL:"https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:"wattawaste-d3503",storageBucket:"wattawaste-d3503.firebasestorage.app",
+    messagingSenderId:"842761118644",appId:"1:842761118644:web:ddef65fd892486f67f88e1"
 };
-
-const app  = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db   = getDatabase(app);
-
-onAuthStateChanged(auth, (user) => {
-    if (!user) { window.location.href = 'login.php'; return; }
-    sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
-    sessionStorage.setItem('userId', user.uid);
-
-    // Map: sensorPath → { displayId, inputId, unit, decimals }
-    const sensorMap = {
-        'sensors/temperature/latest': { display: 'liveTemp',   input: 'inp_temp',   unit: '°C',  dec: 1 },
-        'sensors/humidity/latest':    { display: 'liveHum',    input: 'inp_hum',    unit: '%',   dec: 1 },
-        'sensors/gas/latest':         { display: 'liveGas',    input: 'inp_gas',    unit: ' ppm',dec: 2 },
-        'sensors/ph/latest':          { display: 'livePH',     input: 'inp_ph',     unit: '',    dec: 1 },
-        'sensors/weight/latest':      { display: 'liveWeight', input: 'inp_weight', unit: ' kg', dec: 4 },
-        'sensors/weight/initial':     { display: null,         input: 'inp_initW',  unit: '',    dec: 4 },
+const app=initializeApp(cfg), auth=getAuth(app), db=getDatabase(app);
+onAuthStateChanged(auth,user=>{
+    if(!user){window.location.href='login.php';return;}
+    const map={
+        'sensors/temperature/latest':['liveTemp','°C',1],
+        'sensors/humidity/latest':   ['liveHum','%',1],
+        'sensors/gas/latest':        ['liveGas',' ppm',2],
+        'sensors/ph/latest':         ['livePH','',1],
+        'sensors/weight/latest':     ['liveWeight',' kg',4],
     };
-
-    Object.entries(sensorMap).forEach(([path, cfg]) => {
-        onValue(ref(db, path), (snap) => {
-            const val = parseFloat(snap.val()) || 0;
-
-            // Update hidden input
-            const inp = document.getElementById(cfg.input);
-            if (inp) inp.value = val;
-
-            // Update display pill
-            if (cfg.display) {
-                const el = document.getElementById(cfg.display);
-                if (el) el.textContent = val.toFixed(cfg.dec) + cfg.unit;
-            }
-
-            // Recalculate weight loss whenever weight or initial changes
-            if (path === 'sensors/weight/latest' || path === 'sensors/weight/initial') {
-                const cur  = parseFloat(document.getElementById('inp_weight').value) || 0;
-                const init = parseFloat(document.getElementById('inp_initW').value)  || 0;
-                const loss = init > 0 ? Math.max(0, ((init - cur) / init) * 100) : 0;
-                const lossEl = document.getElementById('liveWeightLoss');
-                if (lossEl) lossEl.textContent = loss.toFixed(1) + '%';
-                const lossInp = document.getElementById('inp_loss');
-                if (lossInp) lossInp.value = loss.toFixed(2);
-            }
+    Object.entries(map).forEach(([path,[id,unit,dec]])=>{
+        onValue(ref(db,path),s=>{
+            const el=document.getElementById(id);
+            if(el) el.textContent=(parseFloat(s.val())||0).toFixed(dec)+unit;
         });
     });
+    let cw=<?php echo (float)$weight;?>,iw=<?php echo (float)$initWeight;?>;
+    function upd(){
+        const l=iw>0?Math.max(0,((iw-cw)/iw)*100):0;
+        const el=document.getElementById('liveWeightLoss');
+        if(el) el.textContent=l.toFixed(1)+'%';
+        const bar=document.getElementById('wlBar');
+        if(bar) bar.style.width=Math.min(l,100)+'%';
+    }
+    onValue(ref(db,'sensors/weight/latest'),s=>{cw=parseFloat(s.val())||0;upd();});
+    onValue(ref(db,'sensors/weight/initial'),s=>{iw=parseFloat(s.val())||0;upd();});
 });
 </script>
-
 <?php include_once 'notif_bell.php'; ?>
 
 <style>
-:root {
-    --brand: #4CAF50; --brand-dark: #2E7D32;
-    --ink: #333; --panel: #fff; --muted: #555; --bg: #F9FAFB;
-    --ok: #22c55e; --warn: #f59e0b; --crit: #ef4444;
-}
-body { background: var(--bg); font-family: Poppins, system-ui, sans-serif; color: var(--ink); min-height: 100vh; }
+:root{--brand:#4CAF50;--brand-dark:#2E7D32;--ink:#333;--panel:#fff;--muted:#555;--bg:#F9FAFB;--ok:#22c55e;--warn:#f59e0b;--crit:#ef4444;}
+body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:var(--ink);min-height:100vh;}
+.main{margin-left:260px;padding:20px;min-height:100vh;}
+@media(max-width:768px){.main{margin-left:0;padding:70px 12px 20px;}}
+.card{border:none;border-radius:16px;background:var(--panel);box-shadow:0 6px 16px rgba(2,6,23,.06);transition:.2s;}
+.card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(2,6,23,.1);}
 
-/* ── Layout ── */
-.main { margin-left: 260px; padding: 20px; min-height: 100vh; }
-@media (max-width: 768px) { .main { margin-left: 0; padding: 70px 12px 20px; } }
+.sensor-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;margin-bottom:20px;}
+.sensor-pill{background:#fff;border-radius:14px;padding:14px 10px;text-align:center;
+             box-shadow:0 4px 12px rgba(2,6,23,.06);border-top:3px solid var(--brand);}
+.s-icon{font-size:20px;margin-bottom:4px;}
+.s-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;}
+.s-value{font-size:15px;font-weight:800;color:#1a2e1a;}
 
-/* ── Cards ── */
-.card {
-    border: none; border-radius: 16px; background: var(--panel);
-    box-shadow: 0 6px 16px rgba(2,6,23,.06);
-}
+.ring-wrap{position:relative;width:150px;height:150px;flex-shrink:0;}
+.ring-wrap svg{transform:rotate(-90deg);}
+.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.ring-pct{font-size:30px;font-weight:900;line-height:1;}
+.ring-sub{font-size:11px;color:var(--muted);}
 
-/* ── Sensor strip ── */
-.sensor-strip {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 12px; margin-bottom: 20px;
-}
-.sensor-pill {
-    background: #fff; border-radius: 14px; padding: 14px 10px;
-    text-align: center; box-shadow: 0 4px 12px rgba(2,6,23,.06);
-    border-top: 3px solid var(--brand);
-}
-.sensor-pill .s-icon  { font-size: 20px; margin-bottom: 4px; }
-.sensor-pill .s-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
-.sensor-pill .s-value { font-size: 15px; font-weight: 800; color: #1a2e1a; }
+.badge-thermophilic{background:#ffedd5;color:#c2410c;}
+.badge-mesophilic{background:#dbeafe;color:#1d4ed8;}
+.badge-maturation{background:#f3e8ff;color:#7e22ce;}
+.badge-dormant{background:#f1f5f9;color:#475569;}
+.badge-toohot{background:#fee2e2;color:#b91c1c;}
+.badge-transition{background:#fef9c3;color:#a16207;}
+.stage-badge{display:inline-block;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600;}
 
-/* ── Run button ── */
-.btn-ai {
-    background: linear-gradient(135deg, var(--brand-dark), var(--brand));
-    color: #fff; border: none; border-radius: 14px;
-    padding: 16px 28px; font-size: 15px; font-weight: 700;
-    width: 100%; cursor: pointer; transition: all .2s;
-    box-shadow: 0 4px 20px rgba(76,175,80,.25); font-family: Poppins, sans-serif;
-}
-.btn-ai:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(76,175,80,.4); }
-.btn-ai:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+.auto-card{border-radius:14px;padding:16px;border-left:4px solid;display:flex;align-items:flex-start;gap:12px;margin-bottom:8px;}
+.auto-card.ok{background:#f0fdf4;border-color:var(--ok);}
+.auto-card.warn{background:#fffbeb;border-color:var(--warn);}
+.auto-card.crit{background:#fef2f2;border-color:var(--crit);animation:alertPulse 1.4s ease infinite;}
+@keyframes alertPulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.2)}50%{box-shadow:0 0 0 8px rgba(239,68,68,0)}}
 
-/* ── Spinner ── */
-.spinner-wrap { display: none; text-align: center; padding: 36px 20px; }
-.spinner-wrap.show { display: block; }
-.spin-ring {
-    width: 48px; height: 48px; margin: 0 auto 14px;
-    border: 4px solid #e2e8f0; border-top-color: var(--brand);
-    border-radius: 50%; animation: spin .8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
+.rec-item{padding:12px 16px;border-radius:12px;background:#f8fafc;border-left:3px solid var(--brand);font-size:14px;margin-bottom:8px;line-height:1.6;}
 
-/* ── Results ── */
-.result-wrap { display: none; }
-.result-wrap.show { display: block; animation: fadeUp .4s ease; }
-@keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+.param-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+@media(max-width:480px){.param-grid{grid-template-columns:1fr;}}
+.param-chip{background:#f8fafc;border-radius:12px;padding:14px;border-left:3px solid var(--brand);}
+.p-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;}
+.p-value{font-size:13px;font-weight:600;color:#1a2e1a;line-height:1.4;}
 
-/* ── Readiness ring ── */
-.ring-outer { position: relative; width: 150px; height: 150px; flex-shrink: 0; }
-.ring-outer svg { transform: rotate(-90deg); }
-.ring-center {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-}
-.ring-pct   { font-size: 30px; font-weight: 900; line-height: 1; }
-.ring-sub   { font-size: 11px; color: var(--muted); }
+.section-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-bottom:12px;}
+.wl-bar-wrap{height:6px;background:#e9ecef;border-radius:6px;overflow:hidden;margin-top:6px;}
+.wl-bar{height:100%;background:linear-gradient(90deg,#81C784,#4CAF50);border-radius:6px;transition:width .9s ease;}
 
-/* ── Stage badge ── */
-.stage-badge {
-    display: inline-block; padding: 4px 14px; border-radius: 20px;
-    font-size: 12px; font-weight: 600; margin-bottom: 10px;
-}
-.stage-mesophilic  { background: #dbeafe; color: #1d4ed8; }
-.stage-thermophilic{ background: #ffedd5; color: #c2410c; }
-.stage-cooling     { background: #fef9c3; color: #a16207; }
-.stage-maturation  { background: #f3e8ff; color: #7e22ce; }
-.stage-ready       { background: #dcfce7; color: #15803d; }
+.btn-save{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;border:none;
+          border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;
+          transition:.2s;font-family:Poppins,sans-serif;box-shadow:0 4px 16px rgba(76,175,80,.25);width:100%;}
+.btn-save:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(76,175,80,.35);}
 
-/* ── Param chips ── */
-.param-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-@media (max-width: 480px) { .param-grid { grid-template-columns: 1fr; } }
-
-.param-chip {
-    background: #f8fafc; border-radius: 12px; padding: 14px;
-    border-left: 3px solid var(--brand); transition: transform .15s;
-}
-.param-chip:hover { transform: translateY(-2px); }
-.param-chip .p-icon  { font-size: 18px; margin-bottom: 4px; }
-.param-chip .p-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
-.param-chip .p-value { font-size: 13px; font-weight: 600; color: #1a2e1a; line-height: 1.4; }
-
-/* ── Narrative ── */
-.narrative-box {
-    background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-    border: 1px solid #bbf7d0; border-radius: 14px; padding: 20px;
-    font-size: 14px; line-height: 1.9; color: #14532d;
-    white-space: pre-line; min-height: 60px;
-}
-
-/* ── Error ── */
-.ai-error {
-    display: none; background: #fef2f2; border: 1px solid #fecaca;
-    border-radius: 12px; padding: 14px 18px; color: #b91c1c;
-    font-size: 13px; margin-bottom: 16px;
-}
-.ai-error.show { display: block; }
-
-/* ── Weight loss bar ── */
-.wl-bar-wrap { height: 6px; background: #e9ecef; border-radius: 6px; overflow: hidden; margin-top: 6px; }
-.wl-bar      { height: 100%; background: linear-gradient(90deg, #81C784, #4CAF50); border-radius: 6px; transition: width .9s ease; }
-
-/* ── Typing cursor ── */
-.typing-cursor::after { content: '▌'; animation: blink .7s step-end infinite; }
-@keyframes blink { 50% { opacity: 0; } }
+.phase-pill{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;}
+.phase-aerobic{background:#dcfce7;color:#15803d;}
+.phase-anaerobic{background:#fef9c3;color:#a16207;}
+.ml-badge{background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:#fff;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;}
+.ml-badge-warn{background:linear-gradient(135deg,#78350f,#f59e0b);}
 </style>
 </head>
 <body>
-
 <?php include 'sideabr.php'; ?>
 
 <div class="main">
 <?php include 'topnav.php'; ?>
 
-<!-- Hidden inputs — updated live by Firebase listeners -->
-<input type="hidden" id="inp_temp"   value="<?php echo (float)$temp; ?>">
-<input type="hidden" id="inp_hum"    value="<?php echo (float)$humidity; ?>">
-<input type="hidden" id="inp_gas"    value="<?php echo (float)$gas; ?>">
-<input type="hidden" id="inp_ph"     value="<?php echo (float)$ph; ?>">
-<input type="hidden" id="inp_weight" value="<?php echo (float)$weight; ?>">
-<input type="hidden" id="inp_initW"  value="<?php echo (float)$initWeight; ?>">
-<input type="hidden" id="inp_loss"   value="<?php echo $weightLoss; ?>">
+<div style="max-width:900px;margin:0 auto;">
 
-<div style="max-width:860px; margin: 0 auto;">
-
-    <!-- Page header -->
-    <div class="d-flex align-items-center gap-3 mb-4">
-        <div style="width:44px;height:44px;background:linear-gradient(135deg,#166534,#4ade80);
-                    border-radius:12px;display:flex;align-items:center;justify-content:center;
-                    font-size:20px;box-shadow:0 4px 14px rgba(74,222,128,.3);">🤖</div>
+    <!-- Header -->
+    <div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+        <div style="width:44px;height:44px;background:linear-gradient(135deg,#166534,#4ade80);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 14px rgba(74,222,128,.3);">🧠</div>
         <div>
             <h4 class="mb-0 fw-bold">AI Compost Advisor</h4>
-            <div style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">
-                Garden Waste · Powered by Claude AI
-            </div>
+            <div style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">Garden Waste · Local ML · No External API</div>
         </div>
-        <div class="ms-auto">
-            <span style="font-size:11px;background:#dcfce7;color:#166534;padding:5px 12px;
-                         border-radius:20px;font-weight:600;">
-                🌿 Garden Waste Mode
+        <div class="ms-auto d-flex gap-2 flex-wrap">
+            <span class="phase-pill <?php echo $phase==='aerobic'?'phase-aerobic':'phase-anaerobic';?>">
+                <?php echo $phase==='aerobic'?'🌀 Aerobic Phase':'🫧 Anaerobic Phase';?>
             </span>
+            <span style="background:#dcfce7;color:#166534;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;">🌿 Garden Waste</span>
         </div>
     </div>
 
-    <!-- Live sensor strip -->
+    <!-- Sensors -->
     <div class="sensor-strip">
-        <div class="sensor-pill">
-            <div class="s-icon">🌡️</div>
-            <div class="s-label">Temperature</div>
-            <div class="s-value" id="liveTemp"><?php echo number_format((float)$temp,1); ?>°C</div>
-        </div>
-        <div class="sensor-pill">
-            <div class="s-icon">💧</div>
-            <div class="s-label">Humidity</div>
-            <div class="s-value" id="liveHum"><?php echo number_format((float)$humidity,1); ?>%</div>
-        </div>
-        <div class="sensor-pill">
-            <div class="s-icon">💨</div>
-            <div class="s-label">Gas / CO₂</div>
-            <div class="s-value" id="liveGas"><?php echo number_format((float)$gas,2); ?> ppm</div>
-        </div>
-        <div class="sensor-pill">
-            <div class="s-icon">⚗️</div>
-            <div class="s-label">pH Level</div>
-            <div class="s-value" id="livePH"><?php echo number_format((float)$ph,1); ?></div>
-        </div>
-        <div class="sensor-pill">
-            <div class="s-icon">⚖️</div>
-            <div class="s-label">Weight</div>
-            <div class="s-value" id="liveWeight"><?php echo number_format((float)$weight,4); ?> kg</div>
-        </div>
-        <div class="sensor-pill">
-            <div class="s-icon">📉</div>
-            <div class="s-label">Weight Loss</div>
-            <div class="s-value" id="liveWeightLoss"><?php echo $weightLoss; ?>%</div>
-        </div>
+        <div class="sensor-pill"><div class="s-icon">🌡️</div><div class="s-label">Temperature</div><div class="s-value" id="liveTemp"><?php echo number_format((float)$temp,1);?>°C</div></div>
+        <div class="sensor-pill"><div class="s-icon">💧</div><div class="s-label">Humidity</div><div class="s-value" id="liveHum"><?php echo number_format((float)$humidity,1);?>%</div></div>
+        <div class="sensor-pill"><div class="s-icon">💨</div><div class="s-label">Gas / CO₂</div><div class="s-value" id="liveGas"><?php echo number_format((float)$gas,2);?> ppm</div></div>
+        <div class="sensor-pill"><div class="s-icon">⚗️</div><div class="s-label">pH Level</div><div class="s-value" id="livePH"><?php echo number_format((float)$ph,1);?></div></div>
+        <div class="sensor-pill"><div class="s-icon">⚖️</div><div class="s-label">Weight</div><div class="s-value" id="liveWeight"><?php echo number_format((float)$weight,4);?> kg</div></div>
+        <div class="sensor-pill"><div class="s-icon">📉</div><div class="s-label">Weight Loss</div><div class="s-value" id="liveWeightLoss"><?php echo $weightLoss;?>%</div></div>
     </div>
 
-    <!-- Weight loss bar -->
+    <!-- Weight bar -->
     <div class="card p-3 mb-3">
         <div class="d-flex justify-content-between mb-1">
-            <small class="text-muted fw-semibold">Decomposition Progress (Weight Loss)</small>
-            <small class="fw-bold text-success" id="wlPctLabel"><?php echo $weightLoss; ?>%</small>
+            <small class="fw-semibold" style="color:var(--muted);">Decomposition Progress (Weight Loss)</small>
+            <small class="fw-bold text-success"><?php echo $weightLoss;?>%</small>
         </div>
-        <div class="wl-bar-wrap">
-            <div class="wl-bar" id="wlBar" style="width:<?php echo min($weightLoss,100); ?>%"></div>
-        </div>
+        <div class="wl-bar-wrap"><div class="wl-bar" id="wlBar" style="width:<?php echo min($weightLoss,100);?>%"></div></div>
         <div class="d-flex justify-content-between mt-1">
-            <small class="text-muted">Initial: <?php echo number_format((float)$initWeight,4); ?> kg</small>
-            <small class="text-muted">Current: <span id="wlCurrent"><?php echo number_format((float)$weight,4); ?></span> kg</small>
+            <small class="text-muted">Initial: <?php echo number_format((float)$initWeight,4);?> kg</small>
+            <small class="text-muted">Current: <?php echo number_format((float)$weight,4);?> kg</small>
         </div>
     </div>
 
-    <!-- Error box -->
-    <div class="ai-error" id="aiError"></div>
-
-    <!-- Run button -->
-    <div class="card p-4 mb-3" id="runCard">
-        <p class="text-muted mb-3" style="font-size:14px;">
-            Click below to send your current sensor readings to Claude AI. It will calculate a
-            <strong>compost readiness score</strong>, identify the current decomposition stage,
-            estimate time to completion, and give you specific actions to take today.
-        </p>
-        <button class="btn-ai" id="runBtn" onclick="runAI()">
-            🤖 &nbsp; Predict Compost Readiness with AI
-        </button>
-    </div>
-
-    <!-- Spinner -->
-    <div class="card spinner-wrap" id="spinnerCard">
-        <div class="spin-ring"></div>
-        <div class="fw-semibold" style="color:var(--brand-dark);">AI Analyzing Your Compost...</div>
-        <div class="text-muted" style="font-size:13px;margin-top:4px;">Sending sensor data to Claude · Please wait</div>
-    </div>
-
-    <!-- Results -->
-    <div class="result-wrap" id="resultWrap">
-
-        <!-- Readiness + Stage -->
-        <div class="card p-4 mb-3 d-flex flex-row align-items-center gap-4 flex-wrap">
-            <!-- Ring -->
-            <div class="ring-outer" id="ringOuter">
-                <svg width="150" height="150" viewBox="0 0 150 150">
-                    <circle cx="75" cy="75" r="62" fill="none" stroke="#e9ecef" stroke-width="13"/>
-                    <circle id="ringArc" cx="75" cy="75" r="62" fill="none"
-                            stroke="#4CAF50" stroke-width="13" stroke-linecap="round"
-                            stroke-dasharray="389.56" stroke-dashoffset="389.56"
-                            style="transition: stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1);"/>
-                </svg>
-                <div class="ring-center">
-                    <div class="ring-pct" id="ringPct" style="color:#4CAF50;">0%</div>
-                    <div class="ring-sub">readiness</div>
+    <!-- Readiness + ML Prediction -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-5">
+            <div class="card p-4 h-100 d-flex align-items-center gap-3 flex-row">
+                <div class="ring-wrap">
+                    <svg width="150" height="150" viewBox="0 0 150 150">
+                        <circle cx="75" cy="75" r="62" fill="none" stroke="#e9ecef" stroke-width="13"/>
+                        <circle cx="75" cy="75" r="62" fill="none" stroke="<?php echo $ringColor;?>" stroke-width="13"
+                                stroke-linecap="round"
+                                stroke-dasharray="<?php echo round($circ,2);?>"
+                                stroke-dashoffset="<?php echo round($offset,2);?>"/>
+                    </svg>
+                    <div class="ring-center">
+                        <div class="ring-pct" style="color:<?php echo $ringColor;?>"><?php echo round($readiness);?>%</div>
+                        <div class="ring-sub">readiness</div>
+                    </div>
+                </div>
+                <div>
+                    <div class="section-title">Compost Stage</div>
+                    <span class="stage-badge badge-<?php echo $stageKey;?> mb-2 d-inline-block"><?php echo $stageName;?></span>
+                    <div style="font-size:12px;color:var(--muted);line-height:1.5;"><?php echo $stageDesc;?></div>
                 </div>
             </div>
+        </div>
 
-            <!-- Stage + ETA -->
+        <div class="col-md-7">
+            <div class="card p-4 h-100">
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <span style="font-size:18px;">🧠</span>
+                    <span class="section-title mb-0">k-NN Prediction from Past Sessions</span>
+                    <span class="ms-auto <?php echo $sessionCount>0?'ml-badge':'ml-badge ml-badge-warn';?>">
+                        <?php echo $sessionCount;?> session<?php echo $sessionCount!==1?'s':'';?>
+                    </span>
+                </div>
+
+                <?php if ($predictedDays !== null): ?>
+                <div class="mb-3">
+                    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Estimated Days to Ready</div>
+                    <div style="font-size:36px;font-weight:900;color:var(--brand-dark);line-height:1.1;">
+                        ~<?php echo $predictedDays;?> <span style="font-size:16px;font-weight:500;">days</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--muted);">Based on <?php echo $sessionCount;?> past session<?php echo $sessionCount!==1?'s':'';?> via weighted k-NN.</div>
+                </div>
+                <?php else: ?>
+                <div class="mb-3" style="background:#f8fafc;border-radius:12px;padding:16px;text-align:center;">
+                    <div style="font-size:24px;margin-bottom:8px;">📊</div>
+                    <div style="font-weight:600;margin-bottom:4px;">No Past Sessions Yet</div>
+                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">Complete a composting cycle then click <strong>"Save Session"</strong> to train the AI. More sessions = smarter predictions.</div>
+                </div>
+                <?php endif; ?>
+
+                <div style="background:#f0fdf4;border-radius:12px;padding:14px;border:1px solid #bbf7d0;">
+                    <div style="font-size:12px;font-weight:600;color:#166534;margin-bottom:10px;">📝 Save Session as Training Data</div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label style="font-size:11px;color:var(--muted);">Days it actually took</label>
+                            <input type="number" id="actualDays" min="1" max="365" placeholder="e.g. 42"
+                                   class="form-control form-control-sm" style="border-radius:8px;">
+                        </div>
+                        <div class="col-6">
+                            <label style="font-size:11px;color:var(--muted);">Outcome</label>
+                            <select id="outcomeSelect" class="form-select form-select-sm" style="border-radius:8px;">
+                                <option value="success">✅ Successful</option>
+                                <option value="partial">⚠️ Partial</option>
+                                <option value="failed">❌ Failed</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn-save" onclick="saveSession()">💾 &nbsp;Save Session to Train AI</button>
+                    <div id="saveMsg" style="display:none;font-size:12px;margin-top:8px;text-align:center;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Automation Decisions -->
+    <div class="card p-4 mb-3">
+        <div class="section-title">⚡ Automated Control Decisions</div>
+        <?php foreach ($automations as $a): ?>
+        <div class="auto-card <?php echo $a['severity'];?>">
+            <div style="font-size:22px;flex-shrink:0;"><?php echo $a['icon'];?></div>
             <div>
-                <div class="text-muted mb-1" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;">Current Stage</div>
-                <div class="stage-badge" id="stageBadge">—</div>
-                <div class="text-muted mb-1 mt-2" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;">Estimated Time to Ready</div>
-                <div style="font-size:24px;font-weight:900;color:var(--ink);" id="etaDisplay">—</div>
+                <div style="font-weight:700;font-size:13px;"><?php echo $a['label'];?>
+                    <span style="font-size:11px;font-weight:800;padding:2px 10px;border-radius:10px;margin-left:8px;
+                        background:<?php echo $sColors[$a['severity']];?>22;color:<?php echo $sColors[$a['severity']];?>;">
+                        <?php echo $a['action'];?>
+                    </span>
+                </div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;"><?php echo $a['reason'];?></div>
             </div>
         </div>
+        <?php endforeach; ?>
+    </div>
 
-        <!-- Adaptive Params -->
-        <div class="param-grid" id="paramGrid">
-            <div class="param-chip"><div class="p-icon">🌬️</div><div class="p-label">Aeration Frequency</div><div class="p-value" id="pAeration">—</div></div>
-            <div class="param-chip"><div class="p-icon">⚙️</div><div class="p-label">Mixer Cycles / Day</div><div class="p-value" id="pMixer">—</div></div>
-            <div class="param-chip"><div class="p-icon">💧</div><div class="p-label">Moisture Action</div><div class="p-value" id="pMoisture">—</div></div>
-            <div class="param-chip"><div class="p-icon">⚗️</div><div class="p-label">pH Action</div><div class="p-value" id="pPH">—</div></div>
+    <!-- Recommendations -->
+    <div class="card p-4 mb-3">
+        <div class="section-title">💡 AI Recommendations</div>
+        <?php foreach ($recommendations as $r): ?>
+            <div class="rec-item"><?php echo htmlspecialchars($r);?></div>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- Params -->
+    <div class="card p-4 mb-3">
+        <div class="section-title">🎛️ Adaptive Parameters</div>
+        <div class="param-grid">
+            <div class="param-chip"><div class="p-label">🌬️ Aeration Frequency</div><div class="p-value"><?php echo $aerationFreq;?></div></div>
+            <div class="param-chip"><div class="p-label">⚙️ Mixer Cycles / Day</div><div class="p-value"><?php echo $mixerCycles;?></div></div>
+            <div class="param-chip"><div class="p-label">💧 Moisture Action</div><div class="p-value"><?php echo $moistureAct;?></div></div>
+            <div class="param-chip"><div class="p-label">⚗️ pH Action</div><div class="p-value"><?php echo $phAction;?></div></div>
         </div>
+    </div>
 
-        <!-- AI Narrative -->
-        <div class="card p-4 mb-3">
-            <div class="d-flex align-items-center gap-2 mb-3">
-                <span style="font-size:16px;">🤖</span>
-                <span style="font-size:11px;color:var(--brand-dark);font-weight:700;
-                              text-transform:uppercase;letter-spacing:.08em;">AI Assessment</span>
+    <!-- Hybrid Phase -->
+    <div class="card p-4 mb-4">
+        <div class="section-title">🔄 Hybrid Process Status</div>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div style="background:<?php echo $phase==='aerobic'?'#f0fdf4':'#f8fafc';?>;border:1.5px solid <?php echo $phase==='aerobic'?'#86efac':'#e2e8f0';?>;border-radius:12px;padding:14px;">
+                    <div style="font-weight:700;margin-bottom:4px;">🌀 Aerobic Phase</div>
+                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">High oxygen and mixing motor active. Normal conditions: temp 20–70°C, pH 6.0–8.5, gas &lt;800 ppm.</div>
+                    <?php if($phase==='aerobic'):?><span style="font-size:11px;background:#dcfce7;color:#166534;padding:3px 10px;border-radius:10px;font-weight:700;margin-top:8px;display:inline-block;">▶ ACTIVE NOW</span><?php endif;?>
+                </div>
             </div>
-            <div class="narrative-box" id="narrativeBox"></div>
+            <div class="col-md-6">
+                <div style="background:<?php echo $phase==='anaerobic'?'#fffbeb':'#f8fafc';?>;border:1.5px solid <?php echo $phase==='anaerobic'?'#fde68a':'#e2e8f0';?>;border-radius:12px;padding:14px;">
+                    <div style="font-weight:700;margin-bottom:4px;">🫧 Anaerobic Phase</div>
+                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">Triggered when gas ≥800 ppm AND pH &lt;6.0. Motor engages to restore aerobic conditions.</div>
+                    <?php if($phase==='anaerobic'):?><span style="font-size:11px;background:#fef9c3;color:#a16207;padding:3px 10px;border-radius:10px;font-weight:700;margin-top:8px;display:inline-block;">▶ ACTIVE NOW</span><?php endif;?>
+                </div>
+            </div>
         </div>
+    </div>
 
-        <!-- Run again -->
-        <button class="btn-ai" style="background:linear-gradient(135deg,#475569,#64748b);
-                box-shadow:0 4px 16px rgba(0,0,0,.1);" onclick="resetUI()">
-            ↩ &nbsp; Run New Analysis
-        </button>
-
-    </div><!-- end result-wrap -->
-
-</div><!-- end max-width container -->
-</div><!-- end .main -->
+</div>
+</div>
 
 <script>
-// ── Typing effect ──────────────────────────────────────────────────────────────
-function typeText(el, text, speed = 16) {
-    el.classList.add('typing-cursor');
-    let i = 0;
-    el.textContent = '';
-    const t = setInterval(() => {
-        el.textContent += text[i++];
-        if (i >= text.length) { clearInterval(t); el.classList.remove('typing-cursor'); }
-    }, speed);
-}
-
-// ── Readiness ring ─────────────────────────────────────────────────────────────
-function setRing(pct) {
-    const circ   = 2 * Math.PI * 62; // 389.56
-    const offset = circ - (pct / 100) * circ;
-    const arc    = document.getElementById('ringArc');
-    const label  = document.getElementById('ringPct');
-    const color  = pct >= 80 ? '#4CAF50' : pct >= 50 ? '#f59e0b' : '#ef4444';
-    arc.style.stroke          = color;
-    arc.style.strokeDashoffset = offset;
-    label.textContent          = pct.toFixed(0) + '%';
-    label.style.color          = color;
-}
-
-// ── Stage badge ────────────────────────────────────────────────────────────────
-const STAGE_CLASS = {
-    'Mesophilic Initial':  'stage-mesophilic',
-    'Thermophilic Active': 'stage-thermophilic',
-    'Cooling Down':        'stage-cooling',
-    'Maturation':          'stage-maturation',
-    'Ready':               'stage-ready',
-};
-function setStageBadge(stage) {
-    const el = document.getElementById('stageBadge');
-    el.textContent  = stage;
-    el.className    = 'stage-badge ' + (STAGE_CLASS[stage] || 'stage-maturation');
-}
-
-// ── Update weight-loss UI from inputs ─────────────────────────────────────────
-function refreshWeightLossUI() {
-    const cur  = parseFloat(document.getElementById('inp_weight').value) || 0;
-    const init = parseFloat(document.getElementById('inp_initW').value)  || 0;
-    const loss = init > 0 ? Math.max(0, ((init - cur) / init) * 100) : 0;
-    document.getElementById('liveWeightLoss').textContent = loss.toFixed(1) + '%';
-    document.getElementById('inp_loss').value             = loss.toFixed(2);
-    document.getElementById('wlBar').style.width          = Math.min(loss, 100) + '%';
-    document.getElementById('wlPctLabel').textContent     = loss.toFixed(1) + '%';
-    document.getElementById('wlCurrent').textContent      = cur.toFixed(4);
-}
-
-// ── Main AI call ───────────────────────────────────────────────────────────────
-async function runAI() {
-    // Read latest live values from hidden inputs
-    const temp       = parseFloat(document.getElementById('inp_temp').value)   || 0;
-    const humidity   = parseFloat(document.getElementById('inp_hum').value)    || 0;
-    const gas        = parseFloat(document.getElementById('inp_gas').value)     || 0;
-    const ph         = parseFloat(document.getElementById('inp_ph').value)      || 0;
-    const weight     = parseFloat(document.getElementById('inp_weight').value) || 0;
-    const initWeight = parseFloat(document.getElementById('inp_initW').value)  || 0;
-    const weightLoss = parseFloat(document.getElementById('inp_loss').value)   || 0;
-
-    // Show spinner, hide everything else
-    document.getElementById('runCard').style.display    = 'none';
-    document.getElementById('spinnerCard').classList.add('show');
-    document.getElementById('resultWrap').classList.remove('show');
-    document.getElementById('aiError').classList.remove('show');
-
-    const prompt = `You are the embedded AI for "Leafcycle", a smart IoT compost bin that processes GARDEN WASTE ONLY (leaves, grass clippings, plant trimmings, garden debris — moderate nitrogen, high carbon).
-
-REAL-TIME SENSOR DATA (just fetched from Firebase):
-- Temperature : ${temp.toFixed(1)}°C
-- Humidity    : ${humidity.toFixed(1)}%
-- pH          : ${ph.toFixed(2)}
-- Gas / CO₂   : ${gas.toFixed(2)} ppm
-- Current Weight : ${weight.toFixed(4)} kg
-- Initial Weight : ${initWeight.toFixed(4)} kg
-- Weight Loss    : ${weightLoss.toFixed(1)}%
-
-OPTIMAL RANGES FOR GARDEN COMPOST:
-  Temperature 45–65°C | Humidity 45–60% | pH 6.5–8.0 | Gas < 600 ppm
-  Weight loss of 40–60% typically indicates mature compost.
-
-TASK: Analyze ALL readings together (not just one sensor) and respond ONLY with valid JSON — no markdown, no text outside the JSON:
-
-{
-  "readiness_pct": <integer 0-100, your overall readiness score>,
-  "stage": "<exactly one of: Mesophilic Initial | Thermophilic Active | Cooling Down | Maturation | Ready>",
-  "eta_days": <integer, estimated days until fully composted; 0 if ready>,
-  "aeration": "<specific aeration frequency recommendation>",
-  "mixer": "<specific mixer cycles per day recommendation>",
-  "moisture_action": "<exact action to take for moisture right now>",
-  "ph_action": "<exact action to take for pH right now>",
-  "narrative": "<3-4 sentences: what the sensor profile reveals about this garden waste batch right now, which single factor needs the most attention, and one concrete action the user should take today. Be direct and specific with numbers.>"
-}`;
-
+async function saveSession() {
+    const days    = parseInt(document.getElementById('actualDays').value);
+    const outcome = document.getElementById('outcomeSelect').value;
+    const msg     = document.getElementById('saveMsg');
+    if (!days || days < 1) {
+        msg.style.display='block'; msg.style.color='#ef4444';
+        msg.textContent='⚠️ Please enter the number of days it took.'; return;
+    }
+    const payload = {
+        temp:        <?php echo (float)$temp;?>,
+        humidity:    <?php echo (float)$humidity;?>,
+        gas:         <?php echo (float)$gas;?>,
+        ph:          <?php echo (float)$ph;?>,
+        weightLoss:  <?php echo (float)$weightLoss;?>,
+        daysToReady: days,
+        outcome:     outcome,
+        readiness:   <?php echo round($readiness,1);?>,
+        savedAt:     new Date().toISOString(),
+    };
     try {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 1000,
-                messages: [{ role: 'user', content: prompt }]
-            })
-        });
-
-        const data   = await res.json();
-        const raw    = (data.content || []).map(b => b.text || '').join('');
-        const clean  = raw.replace(/```json|```/g, '').trim();
-        const parsed = JSON.parse(clean);
-
-        // Populate UI
-        const pct = Math.min(100, Math.max(0, parseFloat(parsed.readiness_pct) || 0));
-        setRing(pct);
-        setStageBadge(parsed.stage || 'Maturation');
-
-        const eta = parseInt(parsed.eta_days) || 0;
-        document.getElementById('etaDisplay').textContent = eta === 0 ? '✅ Ready now!' : `~${eta} days`;
-
-        document.getElementById('pAeration').textContent = parsed.aeration        || '—';
-        document.getElementById('pMixer').textContent    = parsed.mixer           || '—';
-        document.getElementById('pMoisture').textContent = parsed.moisture_action || '—';
-        document.getElementById('pPH').textContent       = parsed.ph_action       || '—';
-
-        typeText(document.getElementById('narrativeBox'), parsed.narrative || '');
-
-        document.getElementById('spinnerCard').classList.remove('show');
-        document.getElementById('resultWrap').classList.add('show');
-
-    } catch (err) {
-        document.getElementById('spinnerCard').classList.remove('show');
-        document.getElementById('runCard').style.display = 'block';
-        const errEl = document.getElementById('aiError');
-        errEl.textContent = '❌ AI error: ' + err.message + ' — Check your network or API key.';
-        errEl.classList.add('show');
+        const res  = await fetch('save_compost_session.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const data = await res.json();
+        if (data.success) {
+            msg.style.display='block'; msg.style.color='#166534';
+            msg.textContent='✅ Session saved! AI will use this for future predictions.';
+            document.getElementById('actualDays').value='';
+        } else { throw new Error(data.error||'Save failed'); }
+    } catch(e) {
+        msg.style.display='block'; msg.style.color='#ef4444';
+        msg.textContent='❌ '+e.message;
     }
 }
-
-// ── Reset ──────────────────────────────────────────────────────────────────────
-function resetUI() {
-    document.getElementById('resultWrap').classList.remove('show');
-    document.getElementById('runCard').style.display = 'block';
-    document.getElementById('aiError').classList.remove('show');
-}
-
-// Initial weight loss bar render
-refreshWeightLossUI();
 </script>
 </body>
 </html>
