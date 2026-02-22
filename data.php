@@ -1494,45 +1494,97 @@ window.deletePlant = async function(plantId) {
     }
 };
 
-// Calculate fertilizer needs
+// Calculate fertilizer needs using predict_readiness API
 async function calculateFertilizerNeeds() {
     const userId = sessionStorage.getItem('userId');
     if (!userId) return;
     
-    // Get available fertilizer from weight sensor
-    const weightRef = window.firebaseRef(window.firebaseDatabase, 'sensors/weight/latest');
-    const weightSnapshot = await window.firebaseGet(weightRef);
-    const currentWeight = weightSnapshot.val() || 0;
-    const availableFertilizer = (currentWeight * 0.5).toFixed(2); // 50% conversion rate
-    
-    // Get user's plants
-    const userPlantsRef = window.firebaseRef(window.firebaseDatabase, `user_plants/${userId}`);
-    const plantsSnapshot = await window.firebaseGet(userPlantsRef);
-    const plants = plantsSnapshot.val();
-    
-    let totalRequired = 0;
-    if (plants) {
-        Object.values(plants).forEach(plant => {
-            totalRequired += parseFloat(plant.totalFertilizerNeeded || 0);
-        });
-    }
-    
-    const balance = (availableFertilizer - totalRequired).toFixed(2);
-    
-    document.getElementById('availableFertilizer').textContent = availableFertilizer + ' kg';
-    document.getElementById('totalRequired').textContent = totalRequired.toFixed(2) + ' kg';
-    document.getElementById('fertilizerBalance').textContent = balance + ' kg';
-    
-    // Color code the balance
-    const balanceEl = document.getElementById('fertilizerBalance');
-    if (balance >= 0) {
-        balanceEl.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
-        balanceEl.style.webkitBackgroundClip = 'text';
-        balanceEl.style.webkitTextFillColor = 'transparent';
-    } else {
-        balanceEl.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
-        balanceEl.style.webkitBackgroundClip = 'text';
-        balanceEl.style.webkitTextFillColor = 'transparent';
+    try {
+        console.log('🌾 Fetching fertilizer data from predict_readiness API...');
+        
+        // Get fertilizer data from predict_readiness API (more accurate than raw weight)
+        const response = await fetch('predict_readiness.php', {cache: 'no-store'});
+        const data = await response.json();
+        
+        console.log('📊 Prediction API Response:', data);
+        
+        const fertilizerOutput = data.fertilizer_output || {};
+        const predictedOutput = parseFloat(fertilizerOutput.predicted_output_kg) || 0;
+        const actualOutput = parseFloat(fertilizerOutput.actual_output_kg) || 0;
+        const isReady = fertilizerOutput.is_ready || false;
+        
+        // Use actual output if ready, otherwise use predicted
+        const availableFertilizer = isReady ? actualOutput : predictedOutput;
+        
+        console.log('🌾 Fertilizer Calculation:');
+        console.log('  - Predicted Output:', predictedOutput, 'kg');
+        console.log('  - Actual Output:', actualOutput, 'kg');
+        console.log('  - Is Ready:', isReady);
+        console.log('  - Available Fertilizer:', availableFertilizer, 'kg');
+        
+        // Get user's plants
+        const userPlantsRef = window.firebaseRef(window.firebaseDatabase, `user_plants/${userId}`);
+        const plantsSnapshot = await window.firebaseGet(userPlantsRef);
+        const plants = plantsSnapshot.val();
+        
+        let totalRequired = 0;
+        if (plants) {
+            Object.values(plants).forEach(plant => {
+                totalRequired += parseFloat(plant.totalFertilizerNeeded || 0);
+            });
+        }
+        
+        const balance = (availableFertilizer - totalRequired).toFixed(2);
+        
+        // Update display
+        document.getElementById('availableFertilizer').textContent = availableFertilizer.toFixed(2) + ' kg';
+        document.getElementById('totalRequired').textContent = totalRequired.toFixed(2) + ' kg';
+        document.getElementById('fertilizerBalance').textContent = balance + ' kg';
+        
+        // Color code the balance
+        const balanceEl = document.getElementById('fertilizerBalance');
+        if (parseFloat(balance) >= 0) {
+            balanceEl.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
+            balanceEl.style.webkitBackgroundClip = 'text';
+            balanceEl.style.webkitTextFillColor = 'transparent';
+        } else {
+            balanceEl.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+            balanceEl.style.webkitBackgroundClip = 'text';
+            balanceEl.style.webkitTextFillColor = 'transparent';
+        }
+        
+        // Add status indicator badge
+        const availableEl = document.getElementById('availableFertilizer').parentElement;
+        let statusBadge = availableEl.querySelector('.status-badge');
+        
+        if (!statusBadge) {
+            statusBadge = document.createElement('div');
+            statusBadge.className = 'status-badge';
+            availableEl.appendChild(statusBadge);
+        }
+        
+        statusBadge.innerHTML = isReady 
+            ? '<i class="fas fa-check-circle"></i> Ready to harvest'
+            : '<i class="fas fa-clock"></i> Still composting';
+        
+        statusBadge.style.cssText = `
+            margin-top: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+            background: ${isReady ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)'};
+            color: ${isReady ? '#16a34a' : '#f59e0b'};
+        `;
+        
+        console.log('✅ Fertilizer calculation complete!');
+        
+    } catch (error) {
+        console.error('❌ Error calculating fertilizer needs:', error);
+        document.getElementById('availableFertilizer').textContent = '-- kg';
+        document.getElementById('totalRequired').textContent = '-- kg';
+        document.getElementById('fertilizerBalance').textContent = '-- kg';
     }
 }
 

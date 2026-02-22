@@ -72,6 +72,11 @@ try {
                 <i class="fa fa-chart-line"></i> Data Analytics
             </a>
         </li>
+        <li>
+            <a href="ai_advisor.php" class="<?php echo $current_page == 'ai_advisor.php' ? 'active' : ''; ?>">
+                <i class="fa fa-robot"></i> AI Advisor
+            </a>
+        </li>
         
         <?php if ($is_admin): ?>
         <li class="menu-divider">
@@ -252,28 +257,20 @@ try {
 @media (max-width: 768px) {
     .hamburger-btn { display: flex; }
     .sidebar-close-btn { display: block; }
-
-    .sidebar {
-        transform: translateX(-100%);
-        width: 260px;
-    }
+    .sidebar { transform: translateX(-100%); width: 260px; }
     .sidebar.open { transform: translateX(0); }
-
-    .main {
-        margin-left: 0;
-        padding: 70px 12px 20px; /* top padding for hamburger */
-    }
+    .main { margin-left: 0; padding: 70px 12px 20px; }
 }
 </style>
 
 <script>
 (function () {
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebarOverlay');
+    const sidebar   = document.getElementById('sidebar');
+    const overlay   = document.getElementById('sidebarOverlay');
     const hamburger = document.getElementById('hamburgerBtn');
-    const closeBtn = document.getElementById('sidebarCloseBtn');
+    const closeBtn  = document.getElementById('sidebarCloseBtn');
 
-    function openSidebar() {
+    function openSidebar()  {
         sidebar.classList.add('open');
         overlay.classList.add('active');
         hamburger.classList.add('open');
@@ -290,11 +287,8 @@ try {
     closeBtn.addEventListener('click', closeSidebar);
     overlay.addEventListener('click', closeSidebar);
 
-    // Close sidebar when a nav link is clicked on mobile
     sidebar.querySelectorAll('a').forEach(link => {
-        link.addEventListener('click', () => {
-            if (window.innerWidth <= 768) closeSidebar();
-        });
+        link.addEventListener('click', () => { if (window.innerWidth <= 768) closeSidebar(); });
     });
 })();
 </script>
