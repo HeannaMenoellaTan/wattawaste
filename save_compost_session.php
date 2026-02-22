@@ -1,9 +1,17 @@
 <?php
-// Suppress ALL PHP warnings/notices so nothing prints before our JSON
+/**
+ * save_compost_session.php
+ *
+ * When called:
+ * 1. Saves the ML training record to compost_sessions/{key}
+ * 2. Archives ALL sensor history to compost_history/{key}/sensors/
+ * 3. Resets sensors/weight/initial to the current live weight
+ *    → This makes index.php, weight.php, predict_readiness.php etc.
+ *      treat the next reading as a brand-new composting cycle
+ */
+
 error_reporting(0);
 ini_set('display_errors', 0);
-
-// Must be first output
 header('Content-Type: application/json');
 
 try {
@@ -18,19 +26,22 @@ try {
     $data = json_decode($body, true);
 
     if (!$data) {
-        echo json_encode(['success' => false, 'error' => 'Invalid JSON body: ' . $body]);
+        echo json_encode(['success' => false, 'error' => 'Invalid JSON']);
         exit;
     }
 
-    // Validate
-    $required = ['temp', 'humidity', 'gas', 'ph', 'weightLoss', 'daysToReady', 'outcome'];
-    foreach ($required as $field) {
-        if (!isset($data[$field])) {
-            echo json_encode(['success' => false, 'error' => "Missing field: $field"]);
+    // Validate required fields
+    foreach (['temp','humidity','gas','ph','weightLoss','daysToReady','outcome'] as $f) {
+        if (!isset($data[$f])) {
+            echo json_encode(['success' => false, 'error' => "Missing field: $f"]);
             exit;
         }
     }
 
+    $db  = getDatabase();
+    $key = (string)(int)(microtime(true) * 1000); // ms timestamp as unique key
+
+    // ── 1. Save ML training record ────────────────────────────────────────────
     $session = [
         'temp'        => round((float)$data['temp'],       2),
         'humidity'    => round((float)$data['humidity'],   2),
@@ -43,14 +54,61 @@ try {
         'readiness'   => round((float)($data['readiness'] ?? 0), 1),
         'savedAt'     => $data['savedAt'] ?? date('c'),
         'wasteType'   => 'garden',
+        'batchKey'    => $key,
     ];
-
-    $db  = getDatabase();
-    $key = (string)(int)(microtime(true) * 1000);
     $db->getReference("compost_sessions/{$key}")->set($session);
 
-    echo json_encode(['success' => true, 'key' => $key]);
+    // ── 2. Archive sensor histories ───────────────────────────────────────────
+    $sensors = ['temperature', 'humidity', 'gas', 'ph', 'weight'];
+    $archiveBase = "compost_history/{$key}";
+
+    // Save session metadata in archive
+    $db->getReference("{$archiveBase}/meta")->set([
+        'savedAt'     => $data['savedAt'] ?? date('c'),
+        'daysToReady' => max(1, (int)$data['daysToReady']),
+        'outcome'     => $session['outcome'],
+        'readiness'   => $session['readiness'],
+        'finalTemp'   => $session['temp'],
+        'finalHum'    => $session['humidity'],
+        'finalGas'    => $session['gas'],
+        'finalPH'     => $session['ph'],
+        'weightLoss'  => $session['weightLoss'],
+    ]);
+
+    // Copy each sensor's history into the archive
+    foreach ($sensors as $sensor) {
+        $history = $db->getReference("sensors/{$sensor}/history")->getValue();
+        if ($history) {
+            $db->getReference("{$archiveBase}/sensors/{$sensor}")->set($history);
+        }
+
+        // Also archive the latest snapshot
+        $latest = $db->getReference("sensors/{$sensor}/latest")->getValue();
+        if ($latest !== null) {
+            $db->getReference("{$archiveBase}/latest/{$sensor}")->set($latest);
+        }
+    }
+
+    // Archive initial weight used for this batch
+    $initialWeight = $db->getReference("sensors/weight/initial")->getValue();
+    if ($initialWeight !== null) {
+        $db->getReference("{$archiveBase}/meta/initialWeight")->set($initialWeight);
+    }
+
+    // ── 3. Reset initial weight → current weight (new cycle starts here) ──────
+    $currentWeight = $db->getReference("sensors/weight/latest")->getValue() ?? 0;
+    $db->getReference("sensors/weight/initial")->set((float)$currentWeight);
+
+    // ── 4. Respond ────────────────────────────────────────────────────────────
+    echo json_encode([
+        'success'        => true,
+        'key'            => $key,
+        'archived'       => true,
+        'newInitialWeight' => (float)$currentWeight,
+        'message'        => 'Session saved. History archived. New cycle started.',
+    ]);
 
 } catch (Throwable $e) {
+    http_response_code(500);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }
