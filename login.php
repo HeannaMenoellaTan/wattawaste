@@ -358,11 +358,11 @@
         const auth = getAuth(app);
         const database = getDatabase(app);
 
-        // Admin email constant
-    const ADMIN_EMAIL = [
-    'tan.heannamenoella.rebolledo@gmail.com',
-    'quimoragwyneth61501@gmail.com'
-    ];
+        // Admin emails array
+        const ADMIN_EMAIL = [
+            'tan.heannamenoella.rebolledo@gmail.com',
+            'quimoragwyneth61501@gmail.com'
+        ];
 
         // DOM Elements
         const emailTab = document.getElementById('emailTab');
@@ -387,25 +387,25 @@
                 console.log('No user to sync');
                 return;
             }
-            
+
             // Skip anonymous users
             if (user.isAnonymous) {
                 console.log('⏭️ Skipping anonymous user sync');
                 return;
             }
-            
+
             console.log('🔄 Syncing user to database:', user.email || user.phoneNumber);
-            
+
             const userRef = ref(database, 'users/' + user.uid);
-            
+
             // Determine provider
             let provider = 'email';
             let providerId = 'password';
-            
+
             if (user.providerData && user.providerData.length > 0) {
                 const providerData = user.providerData[0];
                 providerId = providerData.providerId;
-                
+
                 if (providerId === 'google.com') {
                     provider = 'google';
                 } else if (providerId === 'facebook.com') {
@@ -414,7 +414,7 @@
                     provider = 'phone';
                 }
             }
-            
+
             // Prepare user data
             const userData = {
                 name: user.displayName || user.email || user.phoneNumber || 'User',
@@ -435,11 +435,11 @@
                 createdAt: user.metadata.creationTime,
                 lastSignInTime: user.metadata.lastSignInTime
             };
-            
+
             try {
                 // Check if user exists
                 const snapshot = await get(userRef);
-                
+
                 if (snapshot.exists()) {
                     // User exists - update last login and other dynamic fields
                     await update(userRef, {
@@ -531,7 +531,7 @@
                 // Phone Login
                 const phoneNumber = document.getElementById('phone').value;
                 const phoneLoginBtn = document.getElementById('phoneLoginBtn');
-                
+
                 phoneLoginBtn.disabled = true;
                 phoneLoginBtn.textContent = 'Sending...';
 
@@ -550,28 +550,28 @@
                 const email = document.getElementById('email').value;
                 const password = document.getElementById('emailPassword').value;
                 const emailLoginBtn = document.getElementById('emailLoginBtn');
-                
+
                 emailLoginBtn.disabled = true;
                 emailLoginBtn.textContent = 'Logging in...';
 
                 try {
                     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                    
+
                     // ⭐ AUTO-SYNC USER TO DATABASE
                     await syncUserToDatabase(userCredential.user);
-                    
+
                     showSuccess('Login successful! Redirecting...');
-                    
+
                     // Store user info in sessionStorage
                     sessionStorage.setItem('userEmail', userCredential.user.email);
                     sessionStorage.setItem('userId', userCredential.user.uid);
-                    
-                    // Check if admin email and redirect accordingly
-                    const redirectPage = (userCredential.user.email === ADMIN_EMAIL) ? 'admin_dashboard.php' : 'index.php';
-                    
+
+                    // ✅ FIX: Use .includes() to check against the ADMIN_EMAIL array
+                    const redirectPage = ADMIN_EMAIL.includes(userCredential.user.email) ? 'admin_dashboard.php' : 'index.php';
+
                     console.log('User email:', userCredential.user.email);
                     console.log('Redirecting to:', redirectPage);
-                    
+
                     setTimeout(() => {
                         window.location.href = redirectPage;
                     }, 1500);
@@ -589,22 +589,22 @@
             hideMessages();
             const code = document.getElementById('verificationCode').value;
             const verifyBtn = document.getElementById('verifyCodeBtn');
-            
+
             verifyBtn.disabled = true;
             verifyBtn.textContent = 'Verifying...';
 
             try {
                 const result = await confirmationResult.confirm(code);
-                
+
                 // ⭐ AUTO-SYNC USER TO DATABASE
                 await syncUserToDatabase(result.user);
-                
+
                 showSuccess('Phone verified! Logging in...');
-                
+
                 // Store user info in sessionStorage
                 sessionStorage.setItem('userPhone', result.user.phoneNumber);
                 sessionStorage.setItem('userId', result.user.uid);
-                
+
                 // Phone users always go to index.php
                 setTimeout(() => {
                     window.location.href = 'index.php';
@@ -620,40 +620,40 @@
         googleLoginBtn.addEventListener('click', async () => {
             hideMessages();
             googleLoginBtn.disabled = true;
-            
+
             const provider = new GoogleAuthProvider();
             provider.setCustomParameters({
                 prompt: 'select_account'
             });
-            
+
             try {
                 const result = await signInWithPopup(auth, provider);
-                
+
                 // ⭐ AUTO-SYNC USER TO DATABASE
                 await syncUserToDatabase(result.user);
-                
+
                 const userEmail = result.user.email;
-                
+
                 showSuccess('Login successful! Redirecting...');
-                
+
                 // Store user info
                 sessionStorage.setItem('userEmail', userEmail);
                 sessionStorage.setItem('userName', result.user.displayName || '');
                 sessionStorage.setItem('userId', result.user.uid);
-                
-                // Check if admin email and redirect accordingly
-                const redirectPage = (userEmail === ADMIN_EMAIL) ? 'admin_dashboard.php' : 'index.php';
-                
+
+                // ✅ FIX: Use .includes() to check against the ADMIN_EMAIL array
+                const redirectPage = ADMIN_EMAIL.includes(userEmail) ? 'admin_dashboard.php' : 'index.php';
+
                 console.log('Google user email:', userEmail);
                 console.log('Redirecting to:', redirectPage);
-                
+
                 setTimeout(() => {
                     window.location.href = redirectPage;
                 }, 1500);
-                
+
             } catch (error) {
                 console.error('Google login error:', error);
-                
+
                 if (error.code === 'auth/popup-closed-by-user') {
                     showError('Sign-in cancelled.');
                 } else if (error.code === 'auth/unauthorized-domain') {
@@ -671,37 +671,37 @@
         facebookLoginBtn.addEventListener('click', async () => {
             hideMessages();
             facebookLoginBtn.disabled = true;
-            
+
             const provider = new FacebookAuthProvider();
-            
+
             try {
                 const result = await signInWithPopup(auth, provider);
-                
+
                 // ⭐ AUTO-SYNC USER TO DATABASE
                 await syncUserToDatabase(result.user);
-                
+
                 const userEmail = result.user.email;
-                
+
                 showSuccess('Login successful! Redirecting...');
-                
+
                 // Store user info
                 sessionStorage.setItem('userEmail', userEmail || '');
                 sessionStorage.setItem('userName', result.user.displayName || '');
                 sessionStorage.setItem('userId', result.user.uid);
-                
-                // Check if admin email and redirect accordingly
-                const redirectPage = (userEmail === ADMIN_EMAIL) ? 'admin_dashboard.php' : 'index.php';
-                
+
+                // ✅ FIX: Use .includes() to check against the ADMIN_EMAIL array
+                const redirectPage = ADMIN_EMAIL.includes(userEmail) ? 'admin_dashboard.php' : 'index.php';
+
                 console.log('Facebook user email:', userEmail);
                 console.log('Redirecting to:', redirectPage);
-                
+
                 setTimeout(() => {
                     window.location.href = redirectPage;
                 }, 1500);
-                
+
             } catch (error) {
                 console.error('Facebook login error:', error);
-                
+
                 if (error.code === 'auth/popup-closed-by-user') {
                     showError('Sign-in cancelled.');
                 } else if (error.code === 'auth/unauthorized-domain') {
@@ -718,7 +718,7 @@
         // Forgot Password
         forgotPasswordLink.addEventListener('click', async () => {
             const email = document.getElementById('email').value;
-            
+
             if (!email) {
                 showError('Please enter your email address first.');
                 return;
@@ -747,7 +747,7 @@
                 'auth/missing-phone-number': 'Please enter a phone number.',
                 'auth/account-exists-with-different-credential': 'An account already exists with the same email address but different sign-in credentials.'
             };
-            
+
             return errorMessages[errorCode] || 'An error occurred. Please try again.';
         }
 
