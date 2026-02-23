@@ -815,5 +815,6 @@ updateDateTime();
   setInterval(loadHistoryChart, 5 * 60 * 1000);
 })();
 </script>
+<?php include_once 'notif_bell.php'; ?>
 </body>
 </html>

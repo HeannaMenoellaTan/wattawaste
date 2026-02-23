@@ -54,8 +54,6 @@ window.firebaseOrderByKey = orderByKey;
 window.firebaseLimitToLast = limitToLast;
 </script>
 
-<?php include_once 'notif_bell.php'; ?>
-
 <style>
 :root {
     --brand: #4CAF50;
@@ -605,6 +603,6 @@ window.addEventListener('load', () => {
     });
 });
 </script>
-
+<?php include_once 'notif_bell.php'; ?>
 </body>
 </html>

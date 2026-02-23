@@ -1,0 +1,14 @@
+[2026-02-23 04:11:49] First run detected — defaulting window to last 5 minutes.
+[2026-02-23 04:11:49] === Aggregation started | window: 04:06:48 → 04:11:48 ===
+[2026-02-23 04:11:49] ○ [temperature] No valid readings in window — skipping
+[2026-02-23 04:11:49] ○ [humidity] No valid readings in window — skipping
+[2026-02-23 04:11:49] ○ [gas] No valid readings in window — skipping
+[2026-02-23 04:11:49] ○ [ph] No valid readings in window — skipping
+[2026-02-23 04:11:49] ○ [weight] No valid readings in window — skipping
+[2026-02-23 04:12:01] 🗑  [temperature] Deleted 210 old raw entries (>24h)
+[2026-02-23 04:12:12] 🗑  [humidity] Deleted 209 old raw entries (>24h)
+[2026-02-23 04:12:24] 🗑  [gas] Deleted 209 old raw entries (>24h)
+[2026-02-23 04:12:35] 🗑  [ph] Deleted 208 old raw entries (>24h)
+[2026-02-23 04:12:46] 🗑  [weight] Deleted 208 old raw entries (>24h)
+[2026-02-23 04:12:47] === Aggregation complete ===
+

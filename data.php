@@ -359,8 +359,6 @@ window.firebaseRemove = remove;
 window.firebaseGet = get;
 </script>
 
-<?php include_once 'notif_bell.php'; ?>
-
 <style>
 :root {
     --brand: #4CAF50;
@@ -994,7 +992,6 @@ canvas {
 
 <?php  
 include 'sideabr.php';
-include_once 'notif_bell.php';
 ?>
 
 <div class="main">
@@ -1609,6 +1606,6 @@ document.addEventListener('keydown', (e) => {
     }
 });
 </script>
-
+<?php include_once 'notif_bell.php'; ?>
 </body>
 </html>
