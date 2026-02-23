@@ -18,7 +18,7 @@ require_once 'firebase_config.php';
 <script type="module">
 import { initializeApp }               from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getAuth, onAuthStateChanged }  from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-import { getDatabase, ref, onValue, query, orderByKey, limitToLast }
+import { getDatabase, ref, onValue, query, orderByKey, limitToLast, set, push, get }
     from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
 const firebaseConfig = {
@@ -46,12 +46,15 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-window.firebaseDatabase   = database;
-window.firebaseRef        = ref;
-window.firebaseOnValue    = onValue;
-window.firebaseQuery      = query;
-window.firebaseOrderByKey = orderByKey;
+window.firebaseDatabase    = database;
+window.firebaseRef         = ref;
+window.firebaseOnValue     = onValue;
+window.firebaseQuery       = query;
+window.firebaseOrderByKey  = orderByKey;
 window.firebaseLimitToLast = limitToLast;
+window.firebaseSet         = set;
+window.firebasePush        = push;
+window.firebaseGet         = get;
 </script>
 
 <style>
@@ -147,6 +150,22 @@ body {
 .stat-value { font-size: 36px; font-weight: 800; color: var(--brand-dark); line-height: 1; }
 .stat-label { font-size: 14px; color: var(--muted); margin-top: 8px; }
 
+/* Fertilizer status badge */
+.fertilizer-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 20px; font-size: 13px;
+    font-weight: 600; margin-top: 10px;
+}
+.fertilizer-status.no-weight {
+    background: #fef3c7; color: #92400e;
+}
+.fertilizer-status.composting {
+    background: #dcfce7; color: #166534;
+}
+.fertilizer-status.ready {
+    background: #d1fae5; color: #065f46;
+}
+
 .history-item {
     display: flex; justify-content: space-between; align-items: center;
     padding: 14px 16px; margin-bottom: 8px;
@@ -160,6 +179,13 @@ body {
 
 .alert-custom { padding: 16px 20px; border-radius: 12px; border-left: 4px solid; font-weight: 500; }
 .alert-custom.warning { background: #FFF8E1; color: #7A5A00; border-color: var(--warning); }
+.alert-custom.info    { background: #E3F2FD; color: #0D47A1; border-color: #2196F3; }
+
+/* No compost state */
+.empty-state {
+    text-align: center; padding: 40px; color: var(--muted);
+}
+.empty-state i { font-size: 48px; opacity: 0.3; margin-bottom: 16px; display: block; }
 
 /* Range selector buttons */
 .range-btn {
@@ -168,6 +194,15 @@ body {
 }
 .range-btn:hover  { background: #f1f5f9; }
 .range-btn.active { background: var(--brand-dark); color: #fff; border-color: var(--brand-dark); }
+
+/* Weight change indicator */
+.weight-change-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 12px; font-weight: 600; margin-left: 8px;
+}
+.weight-change-badge.decrease { background: #dcfce7; color: #166534; }
+.weight-change-badge.increase { background: #fee2e2; color: #991b1b; }
+.weight-change-badge.stable   { background: #f3f4f6; color: #6b7280; }
 
 @media (max-width: 768px) {
     .cards-row { grid-template-columns: 1fr; }
@@ -203,31 +238,52 @@ body {
     <div class="weight-card">
         <h3><i class="fas fa-weight me-2"></i>Current Weight</h3>
         <div class="weight-value" id="currentWeightDisplay">-- kg</div>
-        <div class="weight-capacity">Capacity: <span id="capacityDisplay">1</span> kg</div>
+        <div class="weight-capacity">Capacity: <span id="capacityDisplay">100</span> kg</div>
         <div class="progress-bar-container">
             <div class="progress-bar-fill" id="weightProgress" style="width:0%;"></div>
         </div>
         <div class="mt-2 text-muted" style="font-size:13px;" id="weightPercentText">0.0% Full</div>
         <div class="mt-1 text-muted" style="font-size:12px;" id="lastUpdateText">Last updated: --</div>
+        <!-- Weight change indicator -->
+        <div class="mt-2" id="weightChangeContainer" style="display:none;">
+            <small class="text-muted">24h change: </small>
+            <span class="weight-change-badge" id="weightChangeBadge">--</span>
+        </div>
     </div>
 
     <!-- Total Compost Fertilizer -->
     <div class="weight-card">
         <h3><i class="fas fa-seedling me-2"></i>Total Compost Fertilizer</h3>
         <div class="weight-value" id="fertilizerDisplay">-- kg</div>
-        <div class="weight-capacity">Current yield (50% conversion)</div>
+
+        <!-- Status indicator: shown based on weight state -->
+        <div id="fertilizerStatusArea">
+            <span class="fertilizer-status no-weight" id="fertilizerStatusBadge">
+                <i class="fas fa-clock"></i> Waiting for compost
+            </span>
+        </div>
+
+        <div class="weight-capacity mt-2">Current yield (50% conversion)</div>
         <div class="progress-bar-container">
             <div class="progress-bar-fill" id="fertilizerProgress" style="width:0%;"></div>
         </div>
-        <!-- FIX: Maximum fertilizer is 500 kg (50% of 100 kg capacity) -->
-        <div class="mt-2 text-muted" style="font-size:13px;" id="fertilizerMaxText">Maximum: 500 kg</div>
+        <div class="mt-2 text-muted" style="font-size:13px;" id="fertilizerMaxText">Maximum: 50 kg</div>
+
+        <!-- Initial weight info -->
+        <div class="mt-2 text-muted" style="font-size:12px;">
+            Initial batch: <span id="initialWeightText" style="font-weight:600;">-- kg</span>
+        </div>
     </div>
 </div>
 
-<!-- Warning Banner -->
+<!-- Warning / Info Banner -->
 <div class="alert-custom warning mb-4" id="warningBanner" style="display:none;">
     <i class="fas fa-exclamation-triangle me-2"></i>
     <strong>Warning:</strong> <span id="warningBannerText"></span>
+</div>
+<div class="alert-custom info mb-4" id="infoBanner" style="display:none;">
+    <i class="fas fa-info-circle me-2"></i>
+    <span id="infoBannerText"></span>
 </div>
 
 <!-- Statistics Cards -->
@@ -272,7 +328,6 @@ body {
                     Weight Trend
                     <span id="readingsCount" class="small-muted fs-6"></span>
                 </h5>
-                <!-- Range selector -->
                 <div class="d-flex gap-1 flex-wrap" id="rangeButtons">
                     <button class="range-btn" data-range="1h">1h</button>
                     <button class="range-btn" data-range="6h">6h</button>
@@ -296,7 +351,7 @@ body {
             <h5 class="mb-3">
                 <i class="fas fa-history text-success me-2"></i>
                 Recent Live Readings
-                <span class="small-muted fs-6 ms-1">(latest 20 from Firebase)</span>
+                <span class="small-muted fs-6 ms-1">(latest 20, duplicates excluded)</span>
             </h5>
             <div id="historyContainer" style="max-height:500px;overflow-y:auto;">
                 <p class="text-muted text-center py-4">Loading weight history...</p>
@@ -311,8 +366,13 @@ body {
 <script>
 let weightChart  = null;
 let currentRange = '24h';
-// FIX: Capacity updated from 1 kg → 100 kg
 const CAPACITY = 100; // kg
+
+// ── Duplicate Detection Settings ──────────────────────────────────────────────
+// Min difference in kg to count as a new reading (avoids recording sensor noise)
+const MIN_WEIGHT_CHANGE_KG = 0.05;
+// Min time between same-value recordings (ms) — 6 hours for stable readings
+const STABLE_RECORD_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function closeWarning() {
@@ -339,55 +399,125 @@ function formatTimestamp(tsMs) {
 function getRangeCutoffMs(range) {
     const now = Date.now();
     const map = {
-        '1h':  1  * 60 * 60 * 100,
-        '6h':  6  * 60 * 60 * 100,
-        '24h': 24 * 60 * 60 * 100,
-        '7d':  7  * 24 * 60 * 60 * 100,
-        '30d': 30 * 24 * 60 * 60 * 100
+        '1h':  1  * 60 * 60 * 1000,
+        '6h':  6  * 60 * 60 * 1000,
+        '24h': 24 * 60 * 60 * 1000,
+        '7d':  7  * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000
     };
     return now - (map[range] || map['24h']);
 }
 
+// ── DEDUPLICATION: Remove consecutive same-or-noise readings ──────────────────
+// Rules:
+//   1. Skip if value difference from last recorded < MIN_WEIGHT_CHANGE_KG
+//      UNLESS enough time has passed (STABLE_RECORD_INTERVAL_MS)
+//      This way, a stable weight still records once every 6h to show it's holding
+//   2. Always keep the first entry
+function deduplicateEntries(entries) {
+    if (!entries.length) return [];
+
+    const result = [entries[0]];
+    let lastRecorded = entries[0];
+
+    for (let i = 1; i < entries.length; i++) {
+        const current = entries[i];
+        const valueDiff = Math.abs(current.value - lastRecorded.value);
+        const timeDiff  = current.ts - lastRecorded.ts;
+
+        const hasSignificantChange = valueDiff >= MIN_WEIGHT_CHANGE_KG;
+        const isStableCheckpoint   = timeDiff >= STABLE_RECORD_INTERVAL_MS;
+
+        if (hasSignificantChange || isStableCheckpoint) {
+            result.push(current);
+            lastRecorded = current;
+        }
+        // else: skip — duplicate/noise reading
+    }
+
+    return result;
+}
+
 // ── Update the two hero cards ──────────────────────────────────────────────────
-function updateWeightDisplay(weight) {
+function updateWeightDisplay(weight, initialWeight) {
     const percentage  = (weight / CAPACITY) * 100;
-    const fertilizer  = weight * 0.5;
+    const fertilizer  = weight > 0 ? weight * 0.5 : 0;
 
     document.getElementById('currentWeightDisplay').textContent = weight.toFixed(2) + ' kg';
-    document.getElementById('fertilizerDisplay').textContent    = fertilizer.toFixed(2) + ' kg';
     document.getElementById('capacityDisplay').textContent      = CAPACITY.toLocaleString();
     document.getElementById('weightPercentText').textContent    = percentage.toFixed(2) + '% Full';
-    // FIX: Maximum fertilizer is now 500 kg (50% of 100 kg)
-    document.getElementById('fertilizerMaxText').textContent    = 'Maximum: ' + (CAPACITY * 0.5).toLocaleString() + ' kg';
-    document.getElementById('fertilizerStat').textContent       = fertilizer.toFixed(2) + ' kg';
     document.getElementById('lastUpdateText').textContent       =
         'Last updated: ' + new Date().toLocaleString('en-US', {
             month: 'short', day: 'numeric', year: 'numeric',
             hour: 'numeric', minute: '2-digit', hour12: true
         });
 
-    // Progress bars + banner
+    // Initial weight display
+    if (initialWeight > 0) {
+        document.getElementById('initialWeightText').textContent = initialWeight.toFixed(2) + ' kg';
+    } else {
+        document.getElementById('initialWeightText').textContent = 'Not set';
+    }
+
+    // Progress bar for weight
     const weightProgress = document.getElementById('weightProgress');
     weightProgress.style.width = Math.min(100, percentage) + '%';
 
     const banner = document.getElementById('warningBanner');
+    const infoBanner = document.getElementById('infoBanner');
 
-    if (percentage >= 80) {
+    if (weight <= 0) {
+        // Empty bin
+        weightProgress.style.background = '#e8e8e8';
+        banner.style.display = 'none';
+        infoBanner.style.display = 'block';
+        document.getElementById('infoBannerText').textContent =
+            'The compost bin is empty. Add organic waste to begin the composting process.';
+    } else if (percentage >= 80) {
         weightProgress.style.background = 'linear-gradient(90deg, #ff6b6b, #ee5a6f)';
         banner.style.display = 'block';
+        infoBanner.style.display = 'none';
         document.getElementById('warningBannerText').textContent =
             `The bin is reaching capacity (${percentage.toFixed(1)}%). Consider emptying soon.`;
     } else if (percentage >= 60) {
         weightProgress.style.background = 'linear-gradient(90deg, #ffd93d, #f6c23e)';
         banner.style.display = 'none';
+        infoBanner.style.display = 'none';
     } else {
         weightProgress.style.background = 'linear-gradient(90deg, #6fcf97, #27ae60)';
         banner.style.display = 'none';
+        infoBanner.style.display = 'none';
     }
 
-    const fertilizerProgress = document.getElementById('fertilizerProgress');
-    fertilizerProgress.style.width = Math.min(100, (fertilizer / (CAPACITY * 0.5)) * 100) + '%';
-    fertilizerProgress.style.background = 'linear-gradient(90deg, #ffd93d, #f6c23e)';
+    // ── Fertilizer card ────────────────────────────────────────────────────────
+    const fertDisplay   = document.getElementById('fertilizerDisplay');
+    const fertProgress  = document.getElementById('fertilizerProgress');
+    const fertMaxText   = document.getElementById('fertilizerMaxText');
+    const fertStat      = document.getElementById('fertilizerStat');
+    const statusBadge   = document.getElementById('fertilizerStatusBadge');
+
+    if (weight <= 0) {
+        // No compost → no fertilizer
+        fertDisplay.textContent  = '0.00 kg';
+        fertStat.textContent     = '0.00 kg';
+        fertProgress.style.width = '0%';
+        fertMaxText.textContent  = 'Add compost to start tracking';
+        statusBadge.className    = 'fertilizer-status no-weight';
+        statusBadge.innerHTML    = '<i class="fas fa-clock"></i> Waiting for compost';
+    } else {
+        // Has weight — show fertilizer estimate
+        const maxFertilizer = CAPACITY * 0.5;
+        const fertPct = Math.min(100, (fertilizer / maxFertilizer) * 100);
+
+        fertDisplay.textContent  = fertilizer.toFixed(2) + ' kg';
+        fertStat.textContent     = fertilizer.toFixed(2) + ' kg';
+        fertMaxText.textContent  = 'Maximum: ' + maxFertilizer.toLocaleString() + ' kg';
+        fertProgress.style.width = fertPct + '%';
+        fertProgress.style.background = 'linear-gradient(90deg, #ffd93d, #f6c23e)';
+
+        statusBadge.className = 'fertilizer-status composting';
+        statusBadge.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Composting in progress';
+    }
 }
 
 // ── Stats row ──────────────────────────────────────────────────────────────────
@@ -417,7 +547,6 @@ function renderChart(entries) {
     grad.addColorStop(0, 'rgba(76,175,80,0.3)');
     grad.addColorStop(1, 'rgba(76,175,80,0.05)');
 
-    // Thin labels when many points
     const maxTicks  = 10;
     const step      = Math.ceil(labels.length / maxTicks);
     const tickLabels = labels.map((l, i) => (i % step === 0) ? l : '');
@@ -446,7 +575,7 @@ function renderChart(entries) {
                 tooltip: {
                     backgroundColor: 'rgba(0,0,0,0.8)', padding: 12,
                     callbacks: {
-                        title: (items) => labels[items[0].dataIndex], // real label in tooltip
+                        title: (items) => labels[items[0].dataIndex],
                         label: (ctx)   => ' Weight: ' + ctx.parsed.y.toFixed(2) + ' kg'
                     }
                 }
@@ -475,20 +604,32 @@ function renderHistory(entries) {
         return;
     }
 
-    // Show 20 most recent (entries sorted ascending → slice from end)
     const recent = entries.slice(-20).reverse();
     let html = '';
 
-    recent.forEach(entry => {
+    recent.forEach((entry, idx) => {
         const pct = (entry.value / CAPACITY) * 100;
         let badgeClass = 'success', badgeText = 'Normal';
-        if      (pct >= 80) { badgeClass = 'danger';          badgeText = 'Almost Full'; }
+        if      (pct >= 80) { badgeClass = 'danger';            badgeText = 'Almost Full'; }
         else if (pct >= 60) { badgeClass = 'warning text-dark'; badgeText = 'Filling';    }
+        else if (entry.value <= 0) { badgeClass = 'secondary';  badgeText = 'Empty';      }
+
+        // Show weight change from previous reading
+        let changeHtml = '';
+        if (idx < recent.length - 1) {
+            const prev = recent[idx + 1];
+            const diff = entry.value - prev.value;
+            if (Math.abs(diff) >= MIN_WEIGHT_CHANGE_KG) {
+                const cls  = diff < 0 ? 'decrease' : 'increase';
+                const sign = diff < 0 ? '▼' : '▲';
+                changeHtml = `<span class="weight-change-badge ${cls}">${sign} ${Math.abs(diff).toFixed(2)} kg</span>`;
+            }
+        }
 
         html += `
             <div class="history-item">
                 <div>
-                    <div class="history-value">${entry.value.toFixed(2)} kg</div>
+                    <div class="history-value">${entry.value.toFixed(2)} kg ${changeHtml}</div>
                     <div class="history-time">${formatTimestamp(entry.ts)}</div>
                 </div>
                 <span class="badge bg-${badgeClass}">${badgeText}</span>
@@ -499,7 +640,6 @@ function renderHistory(entries) {
 }
 
 // ── Load history from Firebase filtered by range ───────────────────────────────
-// FIX: reads new {value, timestamp} object structure; also handles legacy flat floats
 function loadHistoryData(range) {
     currentRange = range;
 
@@ -513,7 +653,7 @@ function loadHistoryData(range) {
     const histRef = window.firebaseQuery(
         window.firebaseRef(db, 'sensors/weight/history'),
         window.firebaseOrderByKey(),
-        window.firebaseLimitToLast(500)
+        window.firebaseLimitToLast(1000) // fetch more, we'll dedupe client-side
     );
 
     window.firebaseOnValue(histRef, (snapshot) => {
@@ -524,28 +664,29 @@ function loadHistoryData(range) {
             return;
         }
 
-        const entries = [];
+        const rawEntries = [];
 
         Object.entries(raw).forEach(([key, entry]) => {
             let val, tsMs;
 
-            // FIX: Handle new {value, timestamp} objects AND legacy flat floats
             if (typeof entry === 'object' && entry !== null && 'value' in entry) {
                 val  = parseFloat(entry.value);
                 tsMs = entry.timestamp || parseFloat(key);
             } else {
-                // Legacy: plain number stored directly
                 val  = parseFloat(entry);
                 tsMs = parseFloat(key);
             }
 
             if (!isNaN(val) && !isNaN(tsMs) && tsMs >= cutoffMs) {
-                entries.push({ ts: tsMs, value: val });
+                rawEntries.push({ ts: tsMs, value: val });
             }
         });
 
         // Sort ascending by timestamp
-        entries.sort((a, b) => a.ts - b.ts);
+        rawEntries.sort((a, b) => a.ts - b.ts);
+
+        // ── DEDUPLICATION: remove redundant same-value entries ─────────────────
+        const entries = deduplicateEntries(rawEntries);
 
         if (!entries.length) {
             showNoData();
@@ -557,6 +698,13 @@ function loadHistoryData(range) {
         updateStatistics(entries);
         renderChart(entries);
         renderHistory(entries);
+
+        // Show how many were filtered
+        const filtered = rawEntries.length - entries.length;
+        if (filtered > 0) {
+            document.getElementById('readingsCount').textContent =
+                `(${entries.length} readings, ${filtered} duplicates removed)`;
+        }
 
     }, { onlyOnce: true });
 }
@@ -574,15 +722,20 @@ function showNoData() {
 window.initializeWeightMonitoring = function () {
     const db = window.firebaseDatabase;
 
-    // Live latest weight — real-time listener, no throttle needed
-    // (Firebase only fires when the value actually changes)
+    // Fetch initial weight for reference
+    let initialWeight = 0;
+    window.firebaseOnValue(window.firebaseRef(db, 'sensors/weight/initial'), (snap) => {
+        initialWeight = snap.val() ?? 0;
+    });
+
+    // Live latest weight — real-time listener
     const latestRef = window.firebaseRef(db, 'sensors/weight/latest');
     window.firebaseOnValue(latestRef, (snapshot) => {
         const weight = snapshot.val() ?? 0;
-        updateWeightDisplay(weight);
+        updateWeightDisplay(weight, initialWeight);
 
         const pct = (weight / CAPACITY) * 100;
-        if (pct >= 80) showWarningPopup(pct);
+        if (weight > 0 && pct >= 80) showWarningPopup(pct);
     });
 
     // Initial history load
@@ -594,7 +747,6 @@ document.querySelectorAll('.range-btn').forEach(btn => {
     btn.addEventListener('click', () => loadHistoryData(btn.dataset.range));
 });
 
-// Smooth progress bar animation on load
 window.addEventListener('load', () => {
     document.querySelectorAll('.progress-bar-fill').forEach(bar => {
         const w = bar.style.width;
