@@ -639,7 +639,7 @@
                 <li><a href="#about">About</a></li>
                 <li><a href="#client">Our Story</a></li>
                 <li><a href="#garden">Garden</a></li>
-                <li><a href="login.php" class="nav-login-btn">Login</a></li>
+                <li><a href="login.html" class="nav-login-btn">Login</a></li>
             </ul>
 
             <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle menu">
@@ -659,7 +659,7 @@
                     Leafcycle is an intelligent composting solution that monitors and optimizes your organic waste transformation into nutrient-rich fertilizer. Join us in creating a greener, more sustainable future.
                 </p>
                 <div class="hero-cta">
-                    <a href="login.php" class="btn btn-primary">
+                    <a href="login.html" class="btn btn-primary">
                         Get Started <i class="fas fa-arrow-right"></i>
                     </a>
                     <a href="#about" class="btn btn-secondary">
@@ -989,7 +989,7 @@
         <div class="cta-content">
             <h2>Ready to Start Your Composting Journey?</h2>
             <p>Join hundreds of users already transforming waste into valuable resources. Get started with Leafcycle today.</p>
-            <a href="login.php" class="btn">Login to Your Account <i class="fas fa-arrow-right"></i></a>
+            <a href="login.html" class="btn">Login to Your Account <i class="fas fa-arrow-right"></i></a>
         </div>
     </section>
 
@@ -1018,7 +1018,7 @@
             <div class="footer-section">
                 <h4>Resources</h4>
                 <ul class="footer-links">
-                    <li><a href="login.php">Login</a></li>
+                    <li><a href="login.html">Login</a></li>
                     <li><a href="#">Documentation</a></li>
                     <li><a href="#">Support</a></li>
                     <li><a href="#">FAQ</a></li>
