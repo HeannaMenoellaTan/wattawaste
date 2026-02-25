@@ -223,7 +223,7 @@ require_once 'firebase_config.php';
                         <li>user@wattawaste.com (Password: User@2024)</li>
                     </ul>
                     <p style="margin-top: 15px;">
-                        <a href="login.php" style="color: #155724; font-weight: 700;">
+                        <a href="login.html" style="color: #155724; font-weight: 700;">
                             → Go to Login Page
                         </a>
                     </p>

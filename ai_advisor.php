@@ -139,7 +139,7 @@ const cfg = {
 };
 const app=initializeApp(cfg),auth=getAuth(app),db=getDatabase(app);
 onAuthStateChanged(auth,user=>{
-    if(!user){window.location.href='login.php';return;}
+    if(!user){window.location.href='login.html';return;}
     const map={
         'sensors/temperature/latest':['liveTemp','°C',1],
         'sensors/humidity/latest':   ['liveHum','%',1],

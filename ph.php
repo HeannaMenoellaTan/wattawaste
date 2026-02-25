@@ -23,7 +23,7 @@ const firebaseConfig={apiKey:"AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",authDomai
     messagingSenderId:"842761118644",appId:"1:842761118644:web:ddef65fd892486f67f88e1",measurementId:"G-33Z8K3NBY1"};
 const app=initializeApp(firebaseConfig),auth=getAuth(app),database=getDatabase(app);
 onAuthStateChanged(auth,(user)=>{
-    if(!user){window.location.href='login.php';return;}
+    if(!user){window.location.href='login.html';return;}
     sessionStorage.setItem('userEmail',user.email||user.phoneNumber||'');
     sessionStorage.setItem('userId',user.uid);
     window.initializePHMonitoring();

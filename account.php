@@ -30,7 +30,7 @@ if(isset($_SESSION['User_Id'])){
     <div class="dropdown">
         <a href="profile.php">Profile</a>
         <a href="settings.php">Settings</a>
-        <a href="login.php">Logout</a>
+        <a href="login.html">Logout</a>
     </div>
 </div>
 

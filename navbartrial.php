@@ -134,7 +134,7 @@ const auth = getAuth(app);
 onAuthStateChanged(auth, (user) => {
     if (!user) {
         console.log('❌ No user found, redirecting to login...');
-        window.location.href = 'login.php';
+        window.location.href = 'login.html';
     } else {
         console.log('✅ User authenticated:', user.email || user.phoneNumber);
     }

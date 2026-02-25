@@ -30,7 +30,7 @@ const auth     = getAuth(app);
 const database = getDatabase(app);
 
 // ✅ THE KEY FIX:
-// When a Facebook/Google redirect login happens, login.php stores a timestamp
+// When a Facebook/Google redirect login happens, login.html stores a timestamp
 // in localStorage('fbRedirectTime'). When index.php loads after the redirect,
 // Firebase needs a few seconds to restore the auth session.
 // We check for this flag and wait longer before deciding to kick the user out.
@@ -52,7 +52,7 @@ const authTimeout = setTimeout(() => {
     if (!authResolved) {
         console.warn('Firebase auth timed out — redirecting to login');
         localStorage.removeItem('fbRedirectTime');
-        window.location.href = 'login.php';
+        window.location.href = 'login.html';
     }
 }, WAIT_TIME);
 
@@ -63,7 +63,7 @@ onAuthStateChanged(auth, (user) => {
     if (!user) {
         console.log('No user — redirecting to login');
         localStorage.removeItem('fbRedirectTime');
-        window.location.href = 'login.php';
+        window.location.href = 'login.html';
     } else {
         // ✅ User is authenticated — clear the redirect flag and proceed
         localStorage.removeItem('fbRedirectTime');

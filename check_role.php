@@ -62,7 +62,7 @@ if (!function_exists('getMessage')) {
  * Logout function (only if not already defined)
  */
 if (!function_exists('logout')) {
-    function logout($redirectUrl = 'login.php') {
+    function logout($redirectUrl = 'login.html') {
         $_SESSION = array();
         
         if (isset($_COOKIE[session_name()])) {

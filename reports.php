@@ -4,7 +4,7 @@ include('db.php');
 
 // Restrict access
 if (!isset($_SESSION['username'])) {
-  header("Location: login.php");
+  header("Location: login.html");
   exit();
 }
 
@@ -117,7 +117,7 @@ body {
       <li><a href="Users.php">Users</a></li>
       <li><a href="reports.php">Reports</a></li>
       <li><a href="settings.php">Settings</a></li>
-      <li><a href="login.php">Log Out</a></li>
+      <li><a href="login.html">Log Out</a></li>
     </ul>
   </div>
 

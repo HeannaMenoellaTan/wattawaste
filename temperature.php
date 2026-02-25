@@ -36,7 +36,7 @@ const auth     = getAuth(app);
 const database = getDatabase(app);
 
 onAuthStateChanged(auth, (user) => {
-    if (!user) { window.location.href = 'login.php'; return; }
+    if (!user) { window.location.href = 'login.html'; return; }
     sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
     sessionStorage.setItem('userId',    user.uid);
     window.initializeLiveTemp();
