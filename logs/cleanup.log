@@ -1,0 +1,15 @@
+[2026-02-25 06:36:41] === Standalone cleanup started ===
+[2026-02-25 06:36:41] --- History cleanup | cutoff: 2026-02-18 06:36:41 ---
+[2026-02-25 06:36:42] ○ [temperature] No old history entries to remove
+[2026-02-25 06:36:42] ○ [humidity] No old history entries to remove
+[2026-02-25 06:36:42] ○ [gas] No old history entries to remove
+[2026-02-25 06:36:43] ○ [ph] No old history entries to remove
+[2026-02-25 06:36:43] ○ [weight] No old history entries to remove
+[2026-02-25 06:36:43] --- Aggregate cleanup | cutoff: 2026-02-18 06:36:41 ---
+[2026-02-25 06:36:43] ○ [temperature] No old aggregates to remove
+[2026-02-25 06:36:43] ○ [humidity] No old aggregates to remove
+[2026-02-25 06:36:43] ○ [gas] No old aggregates to remove
+[2026-02-25 06:36:43] ○ [ph] No old aggregates to remove
+[2026-02-25 06:36:43] ○ [weight] No old aggregates to remove
+[2026-02-25 06:36:43] === Cleanup complete ===
+

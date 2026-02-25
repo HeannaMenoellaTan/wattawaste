@@ -7,7 +7,7 @@ require_once 'firebase_config.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profile - WattAWaste</title>
+    <title>Profile - Leafcycle</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://kit.fontawesome.com/a2e0e6ad65.js" crossorigin="anonymous"></script>
@@ -35,14 +35,10 @@ require_once 'firebase_config.php';
 
     onAuthStateChanged(auth, (user) => {
         if (!user) {
-            console.log('❌ No user found, redirecting to login...');
             window.location.href = 'login.html';
         } else {
-            console.log('✅ User authenticated:', user.email || user.phoneNumber);
             sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
             sessionStorage.setItem('userId', user.uid);
-            
-            // Load user profile data
             window.loadUserProfile(user);
         }
     });
@@ -130,9 +126,7 @@ require_once 'firebase_config.php';
             border-radius: 50%;
         }
 
-        .profile-info-header {
-            flex: 1;
-        }
+        .profile-info-header { flex: 1; }
 
         .profile-name {
             font-size: 32px;
@@ -143,10 +137,7 @@ require_once 'firebase_config.php';
             -webkit-text-fill-color: transparent;
         }
 
-        .profile-email {
-            color: var(--muted);
-            font-size: 16px;
-        }
+        .profile-email { color: var(--muted); font-size: 16px; }
 
         .verification-badge {
             display: inline-flex;
@@ -188,10 +179,7 @@ require_once 'firebase_config.php';
             color: #ffffff;
         }
 
-        .info-grid {
-            display: grid;
-            gap: 20px;
-        }
+        .info-grid { display: grid; gap: 20px; }
 
         .info-item {
             display: flex;
@@ -217,9 +205,7 @@ require_once 'firebase_config.php';
             text-align: center;
         }
 
-        .info-content {
-            flex: 1;
-        }
+        .info-content { flex: 1; }
 
         .info-label {
             font-size: 12px;
@@ -230,11 +216,7 @@ require_once 'firebase_config.php';
             font-weight: 600;
         }
 
-        .info-value {
-            font-size: 16px;
-            font-weight: 500;
-            color: var(--ink);
-        }
+        .info-value { font-size: 16px; font-weight: 500; color: var(--ink); }
 
         .section-title {
             font-size: 20px;
@@ -246,18 +228,13 @@ require_once 'firebase_config.php';
             gap: 10px;
         }
 
-        .section-title i {
-            color: var(--brand);
-        }
+        .section-title i { color: var(--brand); }
 
-        /* Registration Modal Styles */
+        /* ── Modal ── */
         .modal-overlay {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(5px);
             z-index: 9999;
@@ -266,9 +243,7 @@ require_once 'firebase_config.php';
             padding: 20px;
         }
 
-        .modal-overlay.active {
-            display: flex;
-        }
+        .modal-overlay.active { display: flex; }
 
         .modal-content {
             background: var(--panel);
@@ -283,20 +258,11 @@ require_once 'firebase_config.php';
         }
 
         @keyframes modalSlideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-50px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(-50px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
 
-        .modal-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
+        .modal-header { text-align: center; margin-bottom: 30px; }
 
         .modal-title {
             font-size: 28px;
@@ -307,10 +273,7 @@ require_once 'firebase_config.php';
             margin-bottom: 10px;
         }
 
-        .modal-subtitle {
-            color: var(--muted);
-            font-size: 14px;
-        }
+        .modal-subtitle { color: var(--muted); font-size: 14px; }
 
         .step-indicator {
             display: flex;
@@ -333,33 +296,78 @@ require_once 'firebase_config.php';
             border-radius: 5px;
         }
 
-        .form-group {
-            margin-bottom: 20px;
-        }
+        .form-group { margin-bottom: 18px; }
 
         .form-label {
             display: block;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             color: var(--ink);
-            margin-bottom: 8px;
+            margin-bottom: 7px;
         }
 
-        .form-input {
+        .form-input,
+        .form-select-custom {
             width: 100%;
-            padding: 12px 16px;
+            padding: 11px 14px;
             background: rgba(0, 0, 0, 0.03);
             border: 2px solid rgba(0, 0, 0, 0.1);
             border-radius: 10px;
-            font-size: 15px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--ink);
             transition: all 0.3s ease;
+            appearance: none;
+            -webkit-appearance: none;
         }
 
-        .form-input:focus {
+        .form-input:focus,
+        .form-select-custom:focus {
             outline: none;
             border-color: var(--brand);
             background: rgba(76, 175, 80, 0.05);
         }
+
+        /* Custom select wrapper for arrow icon */
+        .select-wrapper {
+            position: relative;
+        }
+
+        .select-wrapper::after {
+            content: '\f107';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--brand);
+            pointer-events: none;
+            font-size: 14px;
+        }
+
+        /* Two-column grid for smaller fields */
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+
+        /* Address preview box */
+        .address-preview {
+            background: rgba(76, 175, 80, 0.06);
+            border: 1.5px dashed rgba(76, 175, 80, 0.4);
+            border-radius: 10px;
+            padding: 12px 16px;
+            font-size: 13px;
+            color: var(--brand-dark);
+            margin-bottom: 18px;
+            min-height: 44px;
+            line-height: 1.6;
+            font-weight: 500;
+        }
+
+        .address-preview span { color: var(--muted); font-style: italic; font-weight: 400; }
 
         .btn-primary {
             width: 100%;
@@ -373,6 +381,7 @@ require_once 'firebase_config.php';
             cursor: pointer;
             transition: all 0.3s ease;
             margin-top: 10px;
+            font-family: inherit;
         }
 
         .btn-primary:hover:not(:disabled) {
@@ -380,10 +389,7 @@ require_once 'firebase_config.php';
             box-shadow: 0 6px 20px rgba(35, 237, 153, 0.4);
         }
 
-        .btn-primary:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .btn-secondary {
             width: 100%;
@@ -397,6 +403,7 @@ require_once 'firebase_config.php';
             cursor: pointer;
             transition: all 0.3s ease;
             margin-top: 10px;
+            font-family: inherit;
         }
 
         .btn-secondary:hover {
@@ -433,17 +440,8 @@ require_once 'firebase_config.php';
             box-shadow: 0 6px 20px rgba(35, 237, 153, 0.3);
         }
 
-        .bin-card i {
-            font-size: 36px;
-            color: var(--brand);
-            margin-bottom: 10px;
-        }
-
-        .bin-number {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--ink);
-        }
+        .bin-card i { font-size: 36px; color: var(--brand); margin-bottom: 10px; }
+        .bin-number { font-size: 18px; font-weight: 700; color: var(--ink); }
 
         .upload-area {
             width: 100%;
@@ -468,11 +466,7 @@ require_once 'firebase_config.php';
             border-color: var(--brand);
         }
 
-        .upload-icon {
-            font-size: 48px;
-            color: var(--brand);
-            margin-bottom: 10px;
-        }
+        .upload-icon { font-size: 48px; color: var(--brand); margin-bottom: 10px; }
 
         .upload-preview {
             width: 150px;
@@ -495,14 +489,8 @@ require_once 'firebase_config.php';
         }
 
         @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(-10px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
 
         .alert-success {
@@ -517,23 +505,13 @@ require_once 'firebase_config.php';
             color: #991b1b;
         }
 
-        #imageInput {
-            display: none;
-        }
+        #imageInput { display: none; }
 
         @media (max-width: 768px) {
-            .profile-header {
-                flex-direction: column;
-                text-align: center;
-            }
-
-            .profile-name {
-                font-size: 24px;
-            }
-
-            .bin-grid {
-                grid-template-columns: 1fr;
-            }
+            .profile-header { flex-direction: column; text-align: center; }
+            .profile-name { font-size: 24px; }
+            .bin-grid { grid-template-columns: 1fr; }
+            .form-row { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -570,7 +548,6 @@ require_once 'firebase_config.php';
                         <div class="info-value" id="displayName">Not set</div>
                     </div>
                 </div>
-
                 <div class="info-item">
                     <i class="fab fa-facebook"></i>
                     <div class="info-content">
@@ -578,7 +555,6 @@ require_once 'firebase_config.php';
                         <div class="info-value" id="displayFacebook">Not connected</div>
                     </div>
                 </div>
-
                 <div class="info-item">
                     <i class="fab fa-google"></i>
                     <div class="info-content">
@@ -586,7 +562,6 @@ require_once 'firebase_config.php';
                         <div class="info-value" id="displayGoogle">Not connected</div>
                     </div>
                 </div>
-
                 <div class="info-item">
                     <i class="fas fa-phone"></i>
                     <div class="info-content">
@@ -603,7 +578,6 @@ require_once 'firebase_config.php';
                     <i class="fas fa-check-circle"></i>
                     Verified Information
                 </div>
-
                 <div class="info-grid">
                     <div class="info-item">
                         <i class="fas fa-map-marker-alt"></i>
@@ -612,7 +586,6 @@ require_once 'firebase_config.php';
                             <div class="info-value" id="displayAddress">-</div>
                         </div>
                     </div>
-
                     <div class="info-item">
                         <i class="fas fa-trash-alt"></i>
                         <div class="info-content">
@@ -641,7 +614,9 @@ require_once 'firebase_config.php';
     </div>
 </div>
 
-<!-- Verification Modal -->
+<!-- ══════════════════════════════════════════════════════
+     Verification Modal
+══════════════════════════════════════════════════════ -->
 <div id="verificationModal" class="modal-overlay">
     <div class="modal-content">
         <div class="modal-header">
@@ -657,20 +632,99 @@ require_once 'firebase_config.php';
 
         <div id="alertContainer"></div>
 
-        <!-- Step 1: Address Verification -->
+        <!-- ── STEP 1 : Address form ── -->
         <div id="step1" class="step-content">
+
+            <p style="font-size:13px; color:var(--muted); margin-bottom:18px; line-height:1.6;">
+                <i class="fas fa-info-circle" style="color:var(--brand);"></i>
+                &nbsp;Fill in your complete address. Verification is only available for residents of
+                <strong>Kingspoint Homes 1 / Kingspoint Subdivision, Brgy. Bagbag, Quezon City</strong>.
+            </p>
+
+            <!-- City -->
             <div class="form-group">
-                <label class="form-label">
-                    <i class="fas fa-map-marker-alt"></i> Enter Your Address
-                </label>
-                <input type="text" id="addressInput" class="form-input" 
-                       placeholder="e.g., King George Street Kingspoint Homes 1">
+                <label class="form-label"><i class="fas fa-city"></i> &nbsp;City / Municipality</label>
+                <div class="select-wrapper">
+                    <select id="addrCity" class="form-select-custom" onchange="onCityChange()">
+                        <option value="">— Select City —</option>
+                        <option value="Quezon City">Quezon City</option>
+                        <option value="Caloocan">Caloocan</option>
+                        <option value="Manila">Manila</option>
+                        <option value="Marikina">Marikina</option>
+                        <option value="Pasig">Pasig</option>
+                        <option value="Taguig">Taguig</option>
+                        <option value="Mandaluyong">Mandaluyong</option>
+                        <option value="Muntinlupa">Muntinlupa</option>
+                        <option value="Las Piñas">Las Piñas</option>
+                        <option value="Parañaque">Parañaque</option>
+                        <option value="Pasay">Pasay</option>
+                        <option value="Valenzuela">Valenzuela</option>
+                        <option value="Navotas">Navotas</option>
+                        <option value="Malabon">Malabon</option>
+                        <option value="San Juan">San Juan</option>
+                        <option value="Pateros">Pateros</option>
+                    </select>
+                </div>
             </div>
-            <button class="btn-primary" onclick="verifyAddress()">Verify Address</button>
+
+            <!-- Barangay (populated by JS based on city) -->
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-map-pin"></i> &nbsp;Barangay</label>
+                <div class="select-wrapper">
+                    <select id="addrBarangay" class="form-select-custom" disabled onchange="updatePreview()">
+                        <option value="">— Select City first —</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Subdivision / Landmark -->
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-home"></i> &nbsp;Subdivision / Landmark</label>
+                <input type="text" id="addrSubd" class="form-input"
+                       placeholder="Enter your subdivision or landmark"
+                       oninput="updatePreview()">
+            </div>
+
+            <!-- Street & House number -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label"><i class="fas fa-road"></i> &nbsp;Street</label>
+                    <input type="text" id="addrStreet" class="form-input"
+                           placeholder="Enter your street name"
+                           oninput="updatePreview()">
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><i class="fas fa-hashtag"></i> &nbsp;House No.</label>
+                    <input type="text" id="addrHouse" class="form-input"
+                           placeholder="House or unit no."
+                           oninput="updatePreview()">
+                </div>
+            </div>
+
+            <!-- Zip code -->
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-envelope"></i> &nbsp;ZIP / Postal Code</label>
+                <input type="text" id="addrZip" class="form-input"
+                       placeholder="Enter your ZIP code"
+                       maxlength="10"
+                       oninput="updatePreview()">
+            </div>
+
+            <!-- Live address preview -->
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-eye"></i> &nbsp;Address Preview</label>
+                <div class="address-preview" id="addressPreview">
+                    <span>Your complete address will appear here as you fill in the fields above.</span>
+                </div>
+            </div>
+
+            <button class="btn-primary" onclick="verifyAddress()">
+                <i class="fas fa-map-marker-alt"></i> &nbsp;Verify Address
+            </button>
             <button class="btn-secondary" onclick="closeVerificationModal()">Cancel</button>
         </div>
 
-        <!-- Step 2: Compost Bin Selection -->
+        <!-- ── STEP 2 : Compost bin selection ── -->
         <div id="step2" class="step-content" style="display: none;">
             <div class="form-group">
                 <label class="form-label">
@@ -691,108 +745,270 @@ require_once 'firebase_config.php';
                     </div>
                 </div>
             </div>
-            <button class="btn-primary" id="selectBinBtn" disabled onclick="goToStep(3)">Continue to Photo Upload</button>
+            <button class="btn-primary" id="selectBinBtn" disabled onclick="goToStep(3)">
+                Continue to Photo Upload
+            </button>
         </div>
 
-        <!-- Step 3: Profile Picture Upload -->
+        <!-- ── STEP 3 : Profile picture ── -->
         <div id="step3" class="step-content" style="display: none;">
             <div class="form-group">
                 <label class="form-label">
                     <i class="fas fa-camera"></i> Upload Profile Picture
                 </label>
-                <div class="upload-area" id="uploadArea" onclick="document.getElementById('imageInput').click()">
+                <div class="upload-area" id="uploadArea"
+                     onclick="document.getElementById('imageInput').click()">
                     <i class="fas fa-cloud-upload-alt upload-icon"></i>
                     <div>Click to upload or drag and drop</div>
-                    <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">PNG, JPG or JPEG (Max 2MB)</div>
+                    <div style="font-size:13px;color:var(--muted);margin-top:5px;">
+                        PNG, JPG or JPEG (Max 2MB)
+                    </div>
                 </div>
-                <input type="file" id="imageInput" accept="image/png,image/jpeg,image/jpg" onchange="handleImageUpload(event)">
+                <input type="file" id="imageInput" accept="image/png,image/jpeg,image/jpg"
+                       onchange="handleImageUpload(event)">
             </div>
-            <button class="btn-primary" id="completeVerificationBtn" disabled onclick="completeVerification()">Complete Verification</button>
+            <button class="btn-primary" id="completeVerificationBtn" disabled
+                    onclick="completeVerification()">
+                Complete Verification
+            </button>
         </div>
     </div>
 </div>
 
 <script>
-// User data state
-let userData = {
-    name: '',
-    facebook: '',
-    google: '',
-    phone: '',
-    address: '',
-    bin: '',
-    profilePicture: null,
-    isVerified: false
+/* ══════════════════════════════════════════════════════
+   Barangay data keyed by city
+   (Quezon City list is trimmed to the most relevant ones
+    while keeping this file readable)
+══════════════════════════════════════════════════════ */
+const barangayData = {
+    "Quezon City": [
+        "Alicia","Amihan","Apolonio Samson","Aurora","Baesa","Bagbag",
+        "Bagong Lipunan ng Crame","Bagong Pag-asa","Bagong Silangan","Bagumbayan",
+        "Bagumbuhay","Bahay Toro","Batasan Hills","Bayanihan","Blue Ridge A",
+        "Blue Ridge B","Botocan","Bungad","Camp Aguinaldo","Capri","Central",
+        "Claro","Commonwealth","Culiat","Damar","Damayang Lagi","Del Monte",
+        "Dioquino Zobel","Don Manuel","Doña Aurora","Doña Imelda","Doña Josefa",
+        "Duyan-duyan","E. Rodriguez","East Kamias","Escopa I","Escopa II",
+        "Escopa III","Escopa IV","Fairview","Greater Lagro","Gulod","Holy Spirit",
+        "Horseshoe","Immaculate Concepcion","Kaligayahan","Kalusugan","Kamuning",
+        "Katipunan","Kaunlaran","Kristong Hari","Krus na Ligas","Laging Handa",
+        "Libis","Lourdes","Loyola Heights","Maharlika","Malaya","Manresa",
+        "Mariana","Mariblo","Masagana","Masambong","Matandang Balara","Milagrosa",
+        "New Era","Novaliches Proper","Obrero","Old Capitol Site","Paang Bundok",
+        "Pag-ibig sa Nayon","Paligsahan","Paltok","Pansol","Paraiso",
+        "Pasong Putik Proper","Pasong Tamo","Payatas","Phil-Am","Pinagkaisahan",
+        "Pinyahan","Project 6","Quirino 2-A","Quirino 2-B","Quirino 2-C",
+        "Quirino 3-A","R. Magsaysay","Ramon Magsaysay","Roxas","Sacred Heart",
+        "Saint Ignatius","Saint Peter","Salvacion","San Agustin","San Antonio",
+        "San Bartolome","San Isidro Labrador","San Isidro","San Jose","San Martin",
+        "San Roque","San Vicente","Sangandaan","Santa Cruz","Santa Lucia",
+        "Santa Monica","Santiago","Santo Cristo","Santo Domingo","Santo Niño",
+        "Santol","Sauyo","Sienna","Silangan","Socorro","South Triangle",
+        "Tandang Sora","Tatalon","Teachers Village East","Teachers Village West",
+        "U.P. Village","Ugong Norte","Vasra","Veterans Village","Villa Maria Clara",
+        "Visayas","Wack-Wack","West Kamias","White Plains"
+    ],
+    "Caloocan": ["Bagong Barrio","Baesa","Camarin","Deparo","Grace Park East",
+        "Grace Park West","Llano","Maypajo","Monumento","Novaliches"],
+    "Manila": ["Binondo","Ermita","Intramuros","Malate","Paco","Pandacan",
+        "Port Area","Quiapo","Sampaloc","San Miguel","San Nicolas","Santa Ana",
+        "Santa Cruz","Santa Mesa","Tondo"],
+    "Marikina": ["Barangka","Calumpang","Concepcion I","Concepcion II","Fortune",
+        "Industrial Valley","Jesus dela Peña","Kalumpang","Malanday","Nangka",
+        "Parang","San Roque","Santa Elena","Santo Niño","Tañong","Tumana"],
+    "Pasig": ["Bagong Ilog","Bagong Katipunan","Bambang","Buting","Caniogan",
+        "Dela Paz","Kalawaan","Kapasigan","Kapitolyo","Malinao","Manggahan",
+        "Maybunga","Oranbo","Palatiw","Pinagbuhatan","Pineda","Rosario",
+        "Sagad","San Antonio","San Joaquin","San Jose","San Nicolas",
+        "Santa Lucia","Santa Rosa","Santo Tomas","Santolan","Sumilang","Ugong"],
+    "Taguig": ["Bagumbayan","Bambang","Calzada","Central Bicutan","Central Signal",
+        "Fort Bonifacio","Hagonoy","Ibayo-Tipas","Katuparan","Lower Bicutan",
+        "Maharlika Village","Napindan","New Lower Bicutan","North Daang Hari",
+        "North Signal","Palingon","Pinagsama","San Miguel","Santa Ana",
+        "South Daang Hari","South Signal","Tanyag","Tuktukan","Upper Bicutan",
+        "Ususan","Wawa","West Bicutan","Western Bicutan"],
+    "Mandaluyong": ["Addition Hills","Barangka Drive","Barangka Itaas",
+        "Barangka Ilaya","Barangka Ibaba","Buayang Bato","Burol","Daang Bakal",
+        "Hagdan Bato Itaas","Hagdan Bato Libis","Harapin ang Bukas","Highway Hills",
+        "Hulo","Mabini-J. Rizal","Mauway","Namayan","New Zañiga","Old Zañiga",
+        "Pag-asa","Plainview","Pleasant Hills","Poblacion","San Joaquin",
+        "Vergara","Wack-Wack Greenhills"],
+    "Muntinlupa": ["Alabang","Ayala Alabang","Bayanan","Buli","Cupang",
+        "New Alabang Village","Putatan","Sucat","Tunasan"],
+    "Las Piñas": ["Almanza Uno","Almanza Dos","B.F. International Village",
+        "Bambang","CAA/BF International","Daniel Fajardo","Elias Aldana",
+        "Ilaya","Langkaan I","Langkaan II","Manuyo Uno","Manuyo Dos",
+        "Pamplona Uno","Pamplona Dos","Pamplona Tres","Pilar","Pulang Lupa Uno",
+        "Pulang Lupa Dos","Talon Uno","Talon Dos","Talon Tres","Talon Kuatro",
+        "Talon Singko","Zapote"],
+    "Parañaque": ["Baclaran","BF Homes","Don Bosco","Don Galo","La Huerta",
+        "Marcelo Green","Merville","Moonshine","San Antonio","San Dionisio",
+        "San Isidro","San Martin de Porres","Santo Niño","Sun Valley","Tambo","Vitalez"],
+    "Pasay": ["Barangay 1 to 201 (numbered zones)"],
+    "Valenzuela": ["Arkong Bato","Bagbaguin","Balangkas","Bignay","Bisig",
+        "Canumay East","Canumay West","Coloong","Dalandanan","Gen. T. de Leon",
+        "Isla","Karuhatan","Lawang Bato","Lingunan","Mabolo","Malanday",
+        "Malinta","Mapulang Lupa","Marulas","Maysan","Palasan","Parada",
+        "Pariancillo Villa","Paso de Blas","Pasolo","Poblacion","Polo","Punturin",
+        "Rincon","Tagalag","Ugong","Viente Reales","Wawang Pulo"],
+    "Navotas": ["Bagumbayan North","Bagumbayan South","Bangculasi","Daanghari",
+        "Navotas East","Navotas West","North Bay Blvd. North","North Bay Blvd. South",
+        "San Jose","San Rafael Village","San Roque","Sipac-Almacen","Tangos North",
+        "Tangos South","Tanza"],
+    "Malabon": ["Acuña","Baritan","Bayan-bayanan","Catmon","Concepcion",
+        "Dampalit","Flores","Hulong Duhat","Ibaba","Longos","Maysilo",
+        "Muzon","Niugan","Panghulo","Potrero","San Agustin","San Jose",
+        "Santolan","Tañong","Tinajeros","Tonsuya","Tugatog"],
+    "San Juan": ["Addition Hills","Balong Bato","Batis","Corazon de Jesus",
+        "Ermitaño","Greenhills","Isabelita","Kabayanan","Little Baguio",
+        "Maytunas","Onse","Pasadena","Pedro Cruz","Progreso","Rivera",
+        "Salapan","San Perfecto","Santa Lucia","Tibagan","West Crame"],
+    "Pateros": ["Aguho","Magtanggol","Martires del '96","Poblacion","San Pedro",
+        "San Felipe Neri","Santa Ana","Sto. Rosario-Kanluran","Sto. Rosario-Silangan","Tabacalera"]
 };
 
-let selectedBin = null;
+/* ── User data state ── */
+let userData = {
+    name:'', facebook:'', google:'', phone:'',
+    address:'', bin:'', profilePicture:null, isVerified:false
+};
+let selectedBin  = null;
 let uploadedImage = null;
 
-// Load user profile from Firebase
-window.loadUserProfile = function(user) {
-    const userId = user.uid;
-    const userEmail = user.email || user.phoneNumber || '';
-    
-    // Set basic info from Firebase Auth
-    userData.google = userEmail;
-    document.getElementById('profileEmail').textContent = userEmail;
-    document.getElementById('displayGoogle').textContent = userEmail;
-    
-    // Load additional profile data from Firebase Database
-    const userRef = window.firebaseRef(window.firebaseDatabase, `users/${userId}`);
-    window.firebaseOnValue(userRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-            userData = { ...userData, ...data };
-            updateProfileDisplay();
-        } else {
-            // New user - set defaults
-            updateProfileDisplay();
-        }
-    });
-};
+/* ════════════════════════════════════════
+   Address helpers
+════════════════════════════════════════ */
+function onCityChange() {
+    const city = document.getElementById('addrCity').value;
+    const brgySelect = document.getElementById('addrBarangay');
+    brgySelect.innerHTML = '<option value="">— Select Barangay —</option>';
 
-// Update profile display
-function updateProfileDisplay() {
-    // Set name and email
-    const displayName = userData.name || userData.google || 'User';
-    document.getElementById('profileName').textContent = displayName;
-    document.getElementById('displayName').textContent = userData.name || 'Not set';
-    
-    // Set avatar
-    const avatarEl = document.getElementById('profileAvatar');
-    const initialEl = document.getElementById('avatarInitial');
-    
-    if (userData.profilePicture) {
-        initialEl.style.display = 'none';
-        avatarEl.innerHTML = `<img src="${userData.profilePicture}" alt="Profile">`;
+    if (city && barangayData[city]) {
+        barangayData[city].forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b; opt.textContent = b;
+            brgySelect.appendChild(opt);
+        });
+        brgySelect.disabled = false;
     } else {
-        initialEl.textContent = displayName.charAt(0).toUpperCase();
+        brgySelect.innerHTML = '<option value="">— Select City first —</option>';
+        brgySelect.disabled = true;
     }
-    
-    // Set social info
-    document.getElementById('displayFacebook').textContent = userData.facebook || 'Not connected';
-    document.getElementById('displayPhone').textContent = userData.phone || 'Not set';
-    
-    // Set verification badge and sections
-    const badgeEl = document.getElementById('verificationBadge');
-    const verifiedSection = document.getElementById('verifiedSection');
-    const unverifiedSection = document.getElementById('unverifiedSection');
-    
-    if (userData.isVerified) {
-        badgeEl.innerHTML = '<div class="verification-badge"><i class="fas fa-check-circle"></i> Account Verified</div>';
-        verifiedSection.style.display = 'block';
-        unverifiedSection.style.display = 'none';
-        document.getElementById('displayAddress').textContent = userData.address;
-        document.getElementById('displayBin').textContent = `Compost Bin ${userData.bin}`;
+    updatePreview();
+}
+
+function getAddressFields() {
+    return {
+        city:    document.getElementById('addrCity').value.trim(),
+        brgy:    document.getElementById('addrBarangay').value.trim(),
+        subd:    document.getElementById('addrSubd').value.trim(),
+        street:  document.getElementById('addrStreet').value.trim(),
+        house:   document.getElementById('addrHouse').value.trim(),
+        zip:     document.getElementById('addrZip').value.trim(),
+    };
+}
+
+function buildAddressString(f) {
+    const parts = [];
+    if (f.house)  parts.push(f.house);
+    if (f.street) parts.push(f.street);
+    if (f.subd)   parts.push(f.subd);
+    if (f.brgy)   parts.push('Brgy. ' + f.brgy);
+    if (f.city)   parts.push(f.city);
+    if (f.zip)    parts.push(f.zip);
+    return parts.join(', ');
+}
+
+function updatePreview() {
+    const f = getAddressFields();
+    const preview = document.getElementById('addressPreview');
+    const full = buildAddressString(f);
+    if (full) {
+        preview.innerHTML = full;
     } else {
-        badgeEl.innerHTML = '<div class="verification-badge unverified-badge"><i class="fas fa-exclamation-circle"></i> Not Verified</div>';
-        verifiedSection.style.display = 'none';
-        unverifiedSection.style.display = 'block';
+        preview.innerHTML = '<span>Your complete address will appear here as you fill in the fields above.</span>';
     }
 }
 
-// Modal functions
+/* ════════════════════════════════════════
+   Allowed address rules
+   — We normalise both sides to lowercase
+     and strip extra whitespace before
+     comparing so minor capitalisation or
+     spacing differences don't block people.
+════════════════════════════════════════ */
+function normalise(s) {
+    return s.toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')  // keep only alphanum + spaces
+            .replace(/\s+/g, ' ')
+            .trim();
+}
+
+function isAllowedAddress(f) {
+    // Required fixed values
+    const CITY  = 'quezon city';
+    const BRGY  = 'bagbag';
+    const ZIP   = '1116';
+
+    if (normalise(f.city) !== CITY)  return { ok: false, hint: 'City must be Quezon City.' };
+    if (normalise(f.brgy) !== BRGY)  return { ok: false, hint: 'Barangay must be Bagbag.' };
+    if (f.zip && normalise(f.zip) !== ZIP) return { ok: false, hint: 'ZIP code must be 1116.' };
+
+    // Allowed subdivision / street keyword sets
+    // Address A: Kingspoint Subdivision  |  King Ferdinand Street  |  house 24
+    // Address B: Kingspoint Homes 1      |  King George Street
+    const subdA  = ['kingspoint subdivision'];
+    const subdB  = ['kingspoint homes 1', 'kingspoint homes'];
+    const stA    = ['king ferdinand street', 'king ferdinand'];
+    const stB    = ['king george street', 'king george'];
+
+    const normSubd   = normalise(f.subd);
+    const normStreet = normalise(f.street);
+
+    const matchA = subdA.some(s => normSubd.includes(s)) &&
+                   stA.some(s   => normStreet.includes(s));
+    const matchB = subdB.some(s => normSubd.includes(s)) &&
+                   stB.some(s   => normStreet.includes(s));
+
+    if (!matchA && !matchB) {
+        return {
+            ok: false,
+            hint: 'Subdivision or street does not match a registered Kingspoint address.'
+        };
+    }
+
+    return { ok: true };
+}
+
+function verifyAddress() {
+    const f = getAddressFields();
+
+    // Basic completeness check
+    if (!f.city)   { showAlert('Please select a city.',       'error'); return; }
+    if (!f.brgy)   { showAlert('Please select a barangay.',   'error'); return; }
+    if (!f.subd)   { showAlert('Please enter your subdivision or landmark.', 'error'); return; }
+    if (!f.street) { showAlert('Please enter your street.',   'error'); return; }
+    if (!f.house)  { showAlert('Please enter your house number.', 'error'); return; }
+    if (!f.zip)    { showAlert('Please enter your ZIP code.', 'error'); return; }
+
+    const result = isAllowedAddress(f);
+    if (result.ok) {
+        userData.address = buildAddressString(f);
+        showAlert('Address verified successfully!', 'success');
+        setTimeout(() => goToStep(2), 1000);
+    } else {
+        showAlert(
+            'Address verification failed. ' + result.hint +
+            ' Verification is only available for residents of Kingspoint Homes 1 / Kingspoint Subdivision, Brgy. Bagbag, Quezon City, 1116.',
+            'error'
+        );
+    }
+}
+
+/* ════════════════════════════════════════
+   Modal flow
+════════════════════════════════════════ */
 function openVerificationModal() {
     document.getElementById('verificationModal').classList.add('active');
     goToStep(1);
@@ -804,85 +1020,36 @@ function closeVerificationModal() {
 }
 
 function goToStep(step) {
-    // Update step indicators
     document.querySelectorAll('.step').forEach((s, index) => {
-        if (index < step) {
-            s.classList.add('active');
-        } else {
-            s.classList.remove('active');
-        }
+        s.classList.toggle('active', index < step);
     });
-    
-    // Show/hide step content
     document.getElementById('step1').style.display = step === 1 ? 'block' : 'none';
     document.getElementById('step2').style.display = step === 2 ? 'block' : 'none';
     document.getElementById('step3').style.display = step === 3 ? 'block' : 'none';
 }
 
-function verifyAddress() {
-    const address = document.getElementById('addressInput').value.trim();
-    
-    if (!address) {
-        showAlert('Please enter an address', 'error');
-        return;
-    }
-    
-    const requiredAddress = 'King George Street Kingspoint Homes 1';
-    
-    if (address.includes(requiredAddress)) {
-        userData.address = address;
-        showAlert('Address verified successfully!', 'success');
-        setTimeout(() => {
-            goToStep(2);
-        }, 1000);
-    } else {
-        showAlert('Address verification failed. You must reside at King George Street Kingspoint Homes 1.', 'error');
-        setTimeout(() => {
-            closeVerificationModal();
-        }, 3000);
-    }
-}
-
 function selectBin(binNumber) {
     selectedBin = binNumber;
     userData.bin = binNumber;
-    
-    document.querySelectorAll('.bin-card').forEach(card => card.classList.remove('selected'));
+    document.querySelectorAll('.bin-card').forEach(c => c.classList.remove('selected'));
     event.target.closest('.bin-card').classList.add('selected');
     document.getElementById('selectBinBtn').disabled = false;
 }
 
-// Compress image to reduce size
-function compressImage(base64Str, maxWidth = 800, maxHeight = 800, quality = 0.7) {
+/* ════════════════════════════════════════
+   Image handling
+════════════════════════════════════════ */
+function compressImage(base64Str, maxW = 800, maxH = 800, quality = 0.7) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
+            let w = img.width, h = img.height;
+            if (w > h) { if (w > maxW) { h = h * (maxW / w); w = maxW; } }
+            else       { if (h > maxH) { w = w * (maxH / h); h = maxH; } }
             const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
-
-            // Calculate new dimensions
-            if (width > height) {
-                if (width > maxWidth) {
-                    height = height * (maxWidth / width);
-                    width = maxWidth;
-                }
-            } else {
-                if (height > maxHeight) {
-                    width = width * (maxHeight / height);
-                    height = maxHeight;
-                }
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-
-            // Compress to JPEG
-            const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
-            resolve(compressedBase64);
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', quality));
         };
         img.onerror = reject;
         img.src = base64Str;
@@ -892,36 +1059,26 @@ function compressImage(base64Str, maxWidth = 800, maxHeight = 800, quality = 0.7
 async function handleImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
-    const validTypes = ['image/png', 'image/jpeg', 'image/jpg'];
-    if (!validTypes.includes(file.type)) {
-        showAlert('Please upload a PNG or JPEG image', 'error');
-        return;
+    if (!['image/png','image/jpeg','image/jpg'].includes(file.type)) {
+        showAlert('Please upload a PNG or JPEG image', 'error'); return;
     }
-    
     if (file.size > 2 * 1024 * 1024) {
-        showAlert('Image size must be less than 2MB', 'error');
-        return;
+        showAlert('Image size must be less than 2MB', 'error'); return;
     }
-    
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            // Compress the image before storing
             const compressed = await compressImage(e.target.result, 400, 400, 0.7);
             uploadedImage = compressed;
-            
             const uploadArea = document.getElementById('uploadArea');
             uploadArea.classList.add('has-image');
             uploadArea.innerHTML = `
                 <img src="${compressed}" alt="Preview" class="upload-preview">
                 <div>Image uploaded successfully!</div>
-                <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">Click to change image</div>
+                <div style="font-size:13px;color:var(--muted);margin-top:5px;">Click to change image</div>
             `;
-            
             document.getElementById('completeVerificationBtn').disabled = false;
-        } catch (error) {
-            console.error('Image compression error:', error);
+        } catch (err) {
             showAlert('Failed to process image. Please try another image.', 'error');
         }
     };
@@ -929,36 +1086,16 @@ async function handleImageUpload(event) {
 }
 
 async function completeVerification() {
-    if (!uploadedImage) {
-        showAlert('Please upload a profile picture', 'error');
-        return;
-    }
-    
-    // Disable button to prevent double submission
+    if (!uploadedImage) { showAlert('Please upload a profile picture', 'error'); return; }
     const btn = document.getElementById('completeVerificationBtn');
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
-    
+    btn.disabled = true; btn.textContent = 'Saving...';
     userData.profilePicture = uploadedImage;
     userData.isVerified = true;
-    
-    // Save to Firebase
     try {
         const userId = sessionStorage.getItem('userId');
-        if (!userId) {
-            throw new Error('User ID not found. Please log in again.');
-        }
-        
-        // Validate required fields
-        if (!userData.address || !userData.bin) {
-            throw new Error('Missing required verification data. Please start over.');
-        }
-        
-        console.log('📤 Saving profile to Firebase...');
-        
+        if (!userId) throw new Error('User ID not found. Please log in again.');
+        if (!userData.address || !userData.bin) throw new Error('Missing required verification data. Please start over.');
         const userRef = window.firebaseRef(window.firebaseDatabase, `users/${userId}`);
-        
-        // Save data to Firebase
         await window.firebaseSet(userRef, {
             name: userData.name || '',
             facebook: userData.facebook || '',
@@ -970,53 +1107,44 @@ async function completeVerification() {
             isVerified: true,
             verifiedDate: new Date().toISOString()
         });
-        
-        console.log('✅ Profile saved successfully to Firebase');
         showAlert('Verification complete! Your account is now fully verified.', 'success');
-        
         setTimeout(() => {
             closeVerificationModal();
             updateProfileDisplay();
-            // Refresh the page to update all verification-dependent features
             window.location.reload();
         }, 1500);
     } catch (error) {
-        console.error('❌ Error saving profile:', error);
-        
-        // Show specific error message
-        let errorMessage = 'Failed to save profile. ';
-        if (error.message.includes('permission')) {
-            errorMessage += 'Permission denied. Please check your Firebase rules.';
-        } else if (error.message.includes('size') || error.message.includes('too large')) {
-            errorMessage += 'Data is too large. Please use a smaller image.';
-        } else {
-            errorMessage += error.message || 'Please try again.';
-        }
-        
-        showAlert(errorMessage, 'error');
-        
-        // Re-enable button
-        btn.disabled = false;
-        btn.textContent = 'Complete Verification';
+        let msg = 'Failed to save profile. ';
+        if (error.message.includes('permission')) msg += 'Permission denied.';
+        else msg += error.message || 'Please try again.';
+        showAlert(msg, 'error');
+        btn.disabled = false; btn.textContent = 'Complete Verification';
     }
 }
 
 function resetVerification() {
-    selectedBin = null;
-    uploadedImage = null;
-    document.getElementById('addressInput').value = '';
+    selectedBin = null; uploadedImage = null;
+    // Reset address fields
+    document.getElementById('addrCity').value   = '';
+    document.getElementById('addrBarangay').innerHTML = '<option value="">— Select City first —</option>';
+    document.getElementById('addrBarangay').disabled  = true;
+    document.getElementById('addrSubd').value   = '';
+    document.getElementById('addrStreet').value = '';
+    document.getElementById('addrHouse').value  = '';
+    document.getElementById('addrZip').value    = '';
+    document.getElementById('addressPreview').innerHTML =
+        '<span>Your complete address will appear here as you fill in the fields above.</span>';
+    // Reset other steps
     document.getElementById('selectBinBtn').disabled = true;
     document.getElementById('completeVerificationBtn').disabled = true;
     document.querySelectorAll('.bin-card').forEach(c => c.classList.remove('selected'));
-    
     const uploadArea = document.getElementById('uploadArea');
     uploadArea.classList.remove('has-image');
     uploadArea.innerHTML = `
         <i class="fas fa-cloud-upload-alt upload-icon"></i>
         <div>Click to upload or drag and drop</div>
-        <div style="font-size: 13px; color: var(--muted); margin-top: 5px;">PNG, JPG or JPEG (Max 2MB)</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:5px;">PNG, JPG or JPEG (Max 2MB)</div>
     `;
-    
     document.getElementById('imageInput').value = '';
     document.getElementById('alertContainer').innerHTML = '';
 }
@@ -1024,24 +1152,65 @@ function resetVerification() {
 function showAlert(message, type) {
     const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
     const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
-    
     document.getElementById('alertContainer').innerHTML = `
         <div class="alert ${alertClass}">
             <i class="fas ${icon}"></i>
             <div>${message}</div>
         </div>
     `;
-    
-    setTimeout(() => {
-        document.getElementById('alertContainer').innerHTML = '';
-    }, 5000);
+    if (type === 'error') {
+        setTimeout(() => { document.getElementById('alertContainer').innerHTML = ''; }, 6000);
+    }
 }
 
-// Close modal when clicking outside
-document.getElementById('verificationModal').addEventListener('click', function(e) {
-    if (e.target === this) {
-        closeVerificationModal();
+/* ════════════════════════════════════════
+   Profile display (unchanged from original)
+════════════════════════════════════════ */
+window.loadUserProfile = function(user) {
+    userData.google = user.email || user.phoneNumber || '';
+    document.getElementById('profileEmail').textContent = userData.google;
+    document.getElementById('displayGoogle').textContent = userData.google;
+    const userRef = window.firebaseRef(window.firebaseDatabase, `users/${user.uid}`);
+    window.firebaseOnValue(userRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) { userData = { ...userData, ...data }; }
+        updateProfileDisplay();
+    });
+};
+
+function updateProfileDisplay() {
+    const displayName = userData.name || userData.google || 'User';
+    document.getElementById('profileName').textContent = displayName;
+    document.getElementById('displayName').textContent = userData.name || 'Not set';
+    const avatarEl  = document.getElementById('profileAvatar');
+    const initialEl = document.getElementById('avatarInitial');
+    if (userData.profilePicture) {
+        initialEl.style.display = 'none';
+        avatarEl.innerHTML = `<img src="${userData.profilePicture}" alt="Profile">`;
+    } else {
+        initialEl.textContent = displayName.charAt(0).toUpperCase();
     }
+    document.getElementById('displayFacebook').textContent = userData.facebook || 'Not connected';
+    document.getElementById('displayPhone').textContent    = userData.phone    || 'Not set';
+    const badgeEl          = document.getElementById('verificationBadge');
+    const verifiedSection  = document.getElementById('verifiedSection');
+    const unverifiedSection = document.getElementById('unverifiedSection');
+    if (userData.isVerified) {
+        badgeEl.innerHTML = '<div class="verification-badge"><i class="fas fa-check-circle"></i> Account Verified</div>';
+        verifiedSection.style.display   = 'block';
+        unverifiedSection.style.display = 'none';
+        document.getElementById('displayAddress').textContent = userData.address;
+        document.getElementById('displayBin').textContent     = `Compost Bin ${userData.bin}`;
+    } else {
+        badgeEl.innerHTML = '<div class="verification-badge unverified-badge"><i class="fas fa-exclamation-circle"></i> Not Verified</div>';
+        verifiedSection.style.display   = 'none';
+        unverifiedSection.style.display = 'block';
+    }
+}
+
+/* Close modal on backdrop click */
+document.getElementById('verificationModal').addEventListener('click', function(e) {
+    if (e.target === this) closeVerificationModal();
 });
 </script>
 

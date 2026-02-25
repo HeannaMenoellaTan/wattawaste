@@ -82,7 +82,14 @@ foreach($sensors as $sensor) {
         <!-- PROFILE DROPDOWN -->
         <div class="dropdown">
             <button class="btn btn-light dropdown-toggle p-0 border-0" type="button" id="profileDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                <img src="profile.jpg" alt="Profile" class="rounded-circle" width="36" height="36" style="object-fit:cover;">
+                <!--
+                    Profile picture container:
+                    - Shows uploaded base64 image if available in Firebase
+                    - Falls back to initials avatar if no picture is set
+                -->
+                <div id="topNavAvatar" class="topnav-avatar rounded-circle">
+                    <span id="topNavInitial">U</span>
+                </div>
             </button>
             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="profileDropdown">
                 <li><a class="dropdown-item" href="profile.php">
@@ -126,6 +133,29 @@ foreach($sensors as $sensor) {
 .dot.faulty  { background:#7f8c8d; }
 
 .faulty { font-size: clamp(12px, 2.5vw, 14px); font-weight:600; color:#E65100; white-space:nowrap; }
+
+/* Avatar styles */
+.topnav-avatar {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: linear-gradient(135deg, #23ed99, #0f8156);
+    color: #fff;
+    font-weight: 700;
+    font-size: 15px;
+    flex-shrink: 0;
+}
+.topnav-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+    display: block;
+}
 
 #profileDropdown + .dropdown-menu .dropdown-item { padding: 10px 16px; transition: all 0.2s ease; }
 #profileDropdown + .dropdown-menu .dropdown-item:hover { background: rgba(76,175,80,0.1); color: #2E7D32; }
@@ -203,6 +233,126 @@ window.addEventListener('scroll', () => {
     }
     lastScroll = currentScroll <= 0 ? 0 : currentScroll;
 });
+
+// ─── Profile picture sync from Firebase ───────────────────────────────────────
+/**
+ * Updates the topnav avatar with a base64 image or falls back to initials.
+ * Called by the Firebase onAuthStateChanged listener that already exists in
+ * pages like profile.php.  On pages that don't set up their own listener we
+ * bootstrap a minimal one here.
+ */
+function setTopNavAvatar(profilePicture, displayName) {
+    const avatarEl  = document.getElementById('topNavAvatar');
+    const initialEl = document.getElementById('topNavInitial');
+    if (!avatarEl) return;
+
+    if (profilePicture) {
+        // Replace inner content with the uploaded photo
+        avatarEl.innerHTML = `<img src="${profilePicture}" alt="Profile">`;
+    } else {
+        // Show initials fallback
+        const initial = (displayName || 'U').charAt(0).toUpperCase();
+        avatarEl.innerHTML = `<span id="topNavInitial">${initial}</span>`;
+    }
+}
+
+// Bootstrap a Firebase listener specifically for the topnav avatar.
+// We wrap it in a module-type script tag so it doesn't conflict with any
+// existing Firebase initialisation on the current page.
+(function injectTopNavFirebaseListener() {
+    // Avoid double-initialising if profile.php (or another page) already
+    // exposes window.firebaseAuth and window.firebaseDatabase.
+    // We poll briefly, then fall back to creating our own instance.
+    let attempts = 0;
+    const maxAttempts = 20; // 2 seconds total
+
+    function tryUseExistingInstance() {
+        attempts++;
+        if (window.firebaseAuth && window.firebaseDatabase && window.firebaseRef && window.firebaseOnValue) {
+            // Existing Firebase instance found – just attach a listener
+            attachTopNavListener(window.firebaseAuth, window.firebaseDatabase, window.firebaseRef, window.firebaseOnValue);
+        } else if (attempts < maxAttempts) {
+            setTimeout(tryUseExistingInstance, 100);
+        } else {
+            // No existing instance after 2 s – bootstrap our own (lazy import)
+            bootstrapOwnFirebaseInstance();
+        }
+    }
+
+    tryUseExistingInstance();
+})();
+
+function attachTopNavListener(auth, database, ref, onValue) {
+    // Use onAuthStateChanged if available, otherwise just read userId from sessionStorage
+    const tryAttach = () => {
+        const userId = sessionStorage.getItem('userId');
+        if (!userId) {
+            // Auth may not have fired yet – wait a moment and retry once
+            setTimeout(() => {
+                const uid = sessionStorage.getItem('userId');
+                if (uid) loadTopNavProfile(database, ref, onValue, uid);
+            }, 800);
+            return;
+        }
+        loadTopNavProfile(database, ref, onValue, userId);
+    };
+
+    if (typeof auth.onAuthStateChanged === 'function') {
+        auth.onAuthStateChanged((user) => {
+            if (user) loadTopNavProfile(database, ref, onValue, user.uid);
+        });
+    } else {
+        tryAttach();
+    }
+}
+
+function loadTopNavProfile(database, ref, onValue, userId) {
+    const userRef = ref(database, `users/${userId}`);
+    onValue(userRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            setTopNavAvatar(data.profilePicture || null, data.name || data.google || '');
+        }
+    }, { onlyOnce: true }); // one-time read is enough; profile.php already has a live listener
+}
+
+function bootstrapOwnFirebaseInstance() {
+    // Dynamically import Firebase only if no instance is already on the page
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.textContent = `
+        import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getDatabase, ref, onValue } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
+            authDomain: "wattawaste-d3503.firebaseapp.com",
+            databaseURL: "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "wattawaste-d3503",
+            storageBucket: "wattawaste-d3503.firebasestorage.app",
+            messagingSenderId: "842761118644",
+            appId: "1:842761118644:web:ddef65fd892486f67f88e1"
+        };
+
+        // Reuse existing app if already initialised (avoids duplicate-app error)
+        const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db   = getDatabase(app);
+
+        onAuthStateChanged(auth, (user) => {
+            if (!user) return;
+            const userRef = ref(db, 'users/' + user.uid);
+            onValue(userRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    window.setTopNavAvatar(data.profilePicture || null, data.name || data.google || '');
+                }
+            }, { onlyOnce: true });
+        });
+    `;
+    document.head.appendChild(script);
+}
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

@@ -203,6 +203,14 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
 .ml-badge{background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:#fff;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;}
 .ml-badge-warn{background:linear-gradient(135deg,#78350f,#f59e0b);}
 
+
+ /* Delete button */
+    .btn-delete{background:linear-gradient(135deg,#7f1d1d,#ef4444);color:#fff;border:none;
+                border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;
+                transition:.2s;font-family:Poppins,sans-serif;box-shadow:0 4px 16px rgba(239,68,68,.25);
+                width:100%;margin-top:8px;}
+    .btn-delete:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(239,68,68,.35);}
+    .btn-delete:disabled{opacity:.6;cursor:not-allowed;transform:none;}
 /* Save button */
 .btn-save{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;border:none;
           border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;
@@ -378,9 +386,12 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
                         </div>
                     </div>
                     <button class="btn-save" id="saveBtn" onclick="confirmSave()">
-                        💾 &nbsp;Save Session &amp; Start New Cycle
-                    </button>
-                    <div id="saveMsg" style="display:none;font-size:12px;margin-top:8px;text-align:center;"></div>
+        💾 &nbsp;Save Session &amp; Start New Cycle
+    </button>
+    <button class="btn-delete" id="deleteBtn" onclick="confirmDelete()">
+        🗑️ &nbsp;Delete Session &amp; Start New Cycle
+    </button>
+    <div id="saveMsg" style="display:none;font-size:12px;margin-top:8px;text-align:center;"></div>
                 </div>
             </div>
         </div>
@@ -448,6 +459,30 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
 </div>
 </div>
 
+<!-- ── Confirm DELETE Modal ─────────────────────────────── -->
+    <div class="reset-overlay" id="deleteOverlay">
+        <div class="reset-modal">
+            <div class="reset-icon">🗑️</div>
+            <h4>Delete Session &amp; Start New Cycle?</h4>
+            <p>
+                This will <strong>permanently delete all history data</strong>
+                from the current composting batch — sensor readings,
+                aggregated data, and alerts.<br><br>
+                <span style="color:#ef4444;font-weight:700;">
+                    ⚠️ This will NOT be saved to the ML training data.
+                </span><br><br>
+                The weight baseline will reset so a fresh cycle begins.
+                This action <strong>cannot be undone.</strong>
+            </p>
+            <button class="btn-confirm" id="deleteConfirmBtn"
+                    style="background:linear-gradient(135deg,#7f1d1d,#ef4444);"
+                    onclick="doDelete()">
+                🗑️ &nbsp;Yes, Delete &amp; Reset
+            </button>
+            <button class="btn-cancel" onclick="closeDeleteConfirm()">Cancel</button>
+        </div>
+    </div>
+
 <!-- ── Confirm Reset Modal ──────────────────────────────────────────────── -->
 <div class="reset-overlay" id="resetOverlay">
     <div class="reset-modal">
@@ -511,6 +546,51 @@ function confirmSave() {
 function closeConfirm() {
     document.getElementById('resetOverlay').classList.remove('show');
 }
+function confirmDelete() {
+        document.getElementById('deleteOverlay').classList.add('show');
+    }
+
+    function closeDeleteConfirm() {
+        document.getElementById('deleteOverlay').classList.remove('show');
+    }
+
+    async function doDelete() {
+        document.getElementById('deleteConfirmBtn').disabled    = true;
+        document.getElementById('deleteConfirmBtn').textContent = '⏳ Deleting...';
+
+        try {
+            const res  = await fetch('delete_compost_session.php', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ confirm: true }),
+            });
+            const data = await res.json();
+
+            if (!data.success) throw new Error(data.error || 'Delete failed');
+
+            document.getElementById('deleteOverlay').classList.remove('show');
+
+            // Re-use the success overlay with different text
+            const successOverlay = document.getElementById('successOverlay');
+            successOverlay.querySelector('h4').textContent  = 'Session Deleted!';
+            successOverlay.querySelector('p').innerHTML     =
+                'All history data has been cleared.<br>'
+                + '<strong>A new composting cycle has started.</strong><br><br>'
+                + 'All pages will now track fresh data from this moment.';
+            successOverlay.classList.add('show');
+
+            setTimeout(() => { window.location.reload(); }, 3000);
+
+        } catch (e) {
+            document.getElementById('deleteOverlay').classList.remove('show');
+            const msg         = document.getElementById('saveMsg');
+            msg.style.display = 'block';
+            msg.style.color   = '#ef4444';
+            msg.textContent   = '❌ ' + e.message;
+            document.getElementById('deleteConfirmBtn').disabled    = false;
+            document.getElementById('deleteConfirmBtn').textContent = '🗑️ Yes, Delete & Reset';
+        }
+    }
 
 // Step 2: actually save
 async function doSave() {

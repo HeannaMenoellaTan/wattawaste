@@ -12,3 +12,13 @@
 [2026-02-23 04:12:46] 🗑  [weight] Deleted 208 old raw entries (>24h)
 [2026-02-23 04:12:47] === Aggregation complete ===
 
+[2026-02-25 06:26:52] Resuming from last run. Gap covered: 3015 minutes.
+[2026-02-25 06:26:52] WARNING: Gap > 2 hours. Capping window to prevent timeout.
+[2026-02-25 06:26:52] === Aggregation started | window: 2026-02-25 04:26:51 → 2026-02-25 06:26:51 ===
+[2026-02-25 06:26:52] ✓ [temperature] 11 readings | avg=32.64  min=25  max=34.09
+[2026-02-25 06:26:52] ✓ [humidity] 19 readings | avg=60.28  min=50  max=63.12
+[2026-02-25 06:26:53] ✓ [gas] 23 readings | avg=33.45  min=0  max=69.86
+[2026-02-25 06:26:53] ✓ [ph] 43 readings | avg=7.93  min=7  max=9
+[2026-02-25 06:26:53] ✓ [weight] 130 readings | avg=27.15  min=0  max=54.12
+[2026-02-25 06:26:55] === Aggregation complete ===
+
