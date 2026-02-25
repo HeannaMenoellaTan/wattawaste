@@ -1,80 +1,84 @@
 <?php
+/**
+ * ai_advisor.php — AI Compost Advisor
+ *
+ * KEY CHANGES in this version:
+ *
+ * 1. Readiness score, stage, and weightLoss all come from predict_readiness.php
+ *    (single source of truth — no duplicate scoring logic here).
+ *
+ * 2. NEW: Displays outcome-weighted k-NN breakdown:
+ *    - Shows success / partial / failed session counts separately
+ *    - Displays "Fastest Known Cycle" (success_benchmark_days) as a target
+ *    - Shows ML influence percentage and which outcome weighting is active
+ *
+ * 3. NEW: Session outcome context shown in the save form:
+ *    - User sees how many successful sessions exist before saving
+ *    - Helpful hint explains that successful sessions have more ML weight
+ */
 error_reporting(0);
 ini_set('display_errors', 0);
 
 require_once 'firebase_config.php';
 $database = getDatabase();
 
+// ── Fetch live sensor values ───────────────────────────────────────────────
 $temp       = floatval($database->getReference("sensors/temperature/latest")->getValue() ?? 0);
 $humidity   = floatval($database->getReference("sensors/humidity/latest")->getValue() ?? 0);
 $gas        = floatval($database->getReference("sensors/gas/latest")->getValue() ?? 0);
 $ph         = floatval($database->getReference("sensors/ph/latest")->getValue() ?? 0);
 $weight     = floatval($database->getReference("sensors/weight/latest")->getValue() ?? 0);
 $initWeight = floatval($database->getReference("sensors/weight/initial")->getValue() ?? $weight);
-$rawSessions = $database->getReference("compost_sessions")->getValue() ?? [];
 
-$sessions = [];
+// ── Fetch readiness data from predict_readiness.php (single source of truth) ─
+$readinessData = [];
+try {
+    $host = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http')
+          . '://' . $_SERVER['HTTP_HOST'];
+    $path = dirname($_SERVER['REQUEST_URI']) . '/predict_readiness.php';
+    $raw  = @file_get_contents($host . $path);
+    if ($raw) $readinessData = json_decode($raw, true) ?: [];
+} catch (Exception $ignored) {}
+
+// Core readiness values
+$readiness    = floatval($readinessData['readiness']   ?? 0);
+$stageName    = $readinessData['stage_name']            ?? 'Loading...';
+$stageKey     = $readinessData['stage']                 ?? 'no_compost';
+$weightLoss   = floatval($readinessData['weight_tracking']['credited_weight_loss'] ?? 0);
+$elapsedHours = floatval($readinessData['weight_tracking']['hours_elapsed']        ?? 0);
+$elapsedDays  = floatval($readinessData['weight_tracking']['days_elapsed']         ?? 0);
+$stageCeiling = intval($readinessData['ml']['stage_ceiling'] ?? 0);
+
+// ML / k-NN values — now includes outcome breakdown
+$predictedDays        = $readinessData['ml']['predicted_days']         ?? null;
+$successBenchmarkDays = $readinessData['ml']['success_benchmark_days'] ?? null;
+$sessionCount         = intval($readinessData['ml']['sessions_used']   ?? 0);
+$successSessions      = intval($readinessData['ml']['success_sessions'] ?? 0);
+$partialSessions      = intval($readinessData['ml']['partial_sessions'] ?? 0);
+$failedSessions       = intval($readinessData['ml']['failed_sessions']  ?? 0);
+$mlInfluencePct       = floatval($readinessData['ml']['ml_influence_pct'] ?? 0);
+
+// Load sessions for save/delete form
+$rawSessions = $database->getReference("compost_sessions")->getValue() ?? [];
+$sessions    = [];
 foreach ($rawSessions as $s) {
     if (isset($s['temp'], $s['humidity'], $s['gas'], $s['ph'], $s['weightLoss'], $s['daysToReady'])) {
         $sessions[] = $s;
     }
 }
 
-$weightLoss = ($initWeight > 0)
-    ? max(0, round((($initWeight - $weight) / $initWeight) * 100, 2))
-    : 0;
+// ── Stage descriptions ─────────────────────────────────────────────────────
+$stageDescriptions = [
+    'no_compost'   => 'No compost detected. Add organic waste to begin composting.',
+    'initial'      => 'Fresh batch just added. Microorganisms beginning to establish. Conditions developing for active decomposition.',
+    'mesophilic'   => 'Early microbes colonizing organic material. Temperature and gas building toward thermophilic phase. Credited loss: ' . round($weightLoss, 1) . '%.',
+    'thermophilic' => 'Peak microbial activity. Temperature elevated, pathogens being destroyed. Significant weight loss (' . round($weightLoss, 1) . '%) shows active decomposition.',
+    'late_thermo'  => 'Active decomposition winding down. High microbial activity has processed most material. Final curing phase approaching. Credited loss: ' . round($weightLoss, 1) . '%.',
+    'maturation'   => 'Compost stabilizing into nutrient-rich humus. Nearly ready to harvest! Credited loss: ' . round($weightLoss, 1) . '%.',
+];
+$stageDesc = $stageDescriptions[$stageKey] ?? 'Monitoring...';
 
-// ── k-NN predictor ────────────────────────────────────────────────────────────
-function knnPredictDays(array $sessions, float $t, float $h, float $g, float $p, float $wl, int $k = 3): ?float {
-    if (empty($sessions)) return null;
-    $dist = [];
-    foreach ($sessions as $i => $s) {
-        $dist[$i] = sqrt(
-            pow(($t  - $s['temp'])       / 80,   2) +
-            pow(($h  - $s['humidity'])   / 100,  2) +
-            pow(($g  - $s['gas'])        / 1000, 2) +
-            pow(($p  - $s['ph'])         / 14,   2) +
-            pow(($wl - $s['weightLoss']) / 100,  2)
-        );
-    }
-    asort($dist);
-    $topK = array_slice(array_keys($dist), 0, $k, true);
-    $ws = 0; $wt = 0;
-    foreach ($topK as $i) {
-        $w   = 1 / max($dist[$i], 0.0001);
-        $ws += $w * $sessions[$i]['daysToReady'];
-        $wt += $w;
-    }
-    return $wt > 0 ? round($ws / $wt, 1) : null;
-}
-
-$predictedDays = knnPredictDays($sessions, $temp, $humidity, $gas, $ph, $weightLoss);
-$sessionCount  = count($sessions);
-
-// ── Readiness score ───────────────────────────────────────────────────────────
-function calcReadiness(float $t, float $h, float $g, float $p, float $wl): float {
-    $s = 0;
-    if ($t >= 45 && $t <= 65)      $s += 25; elseif ($t >= 30) $s += 12; elseif ($t >= 20) $s += 6;
-    if ($h >= 45 && $h <= 60)      $s += 20; elseif ($h >= 61 && $h <= 69) $s += 12; elseif ($h >= 35) $s += 10;
-    if ($p >= 6.5 && $p <= 8.0)    $s += 20; elseif ($p >= 6.0) $s += 10; elseif ($p > 8.0 && $p <= 8.5) $s += 10;
-    if ($g < 300)                   $s += 15; elseif ($g < 600) $s += 10; elseif ($g < 800) $s += 5;
-    if ($wl >= 40 && $wl <= 60)    $s += 20; elseif ($wl >= 25) $s += 12; elseif ($wl > 60) $s += 16;
-    return min(100, $s);
-}
-$readiness = calcReadiness($temp, $humidity, $gas, $ph, $weightLoss);
-
-// ── Stage ─────────────────────────────────────────────────────────────────────
-function detectStage(float $t, float $p, float $g): array {
-    if ($t > 70)                                         return ['Too Hot',             'toohot',       'Overheating! Ventilation must trigger immediately.'];
-    if ($t >= 45 && $t <= 70 && $p >= 6.5 && $p <= 8.0) return ['Thermophilic Active', 'thermophilic', 'High microbial activity. Pathogens are being destroyed.'];
-    if ($t < 40 && $t >= 20 && $p >= 6.5 && $g < 300)   return ['Maturation',          'maturation',   'Compost stabilizing into nutrient-rich humus.'];
-    if ($t >= 20 && $t < 45 && $p >= 5.5 && $p < 6.5)   return ['Mesophilic Initial',  'mesophilic',   'Early-stage microbes breaking down simple materials.'];
-    if ($t < 20)                                          return ['Dormant / Too Cold',  'dormant',      'Microbial activity very low. Bin may need insulation.'];
-    return ['Transition', 'transition', 'Compost moving between phases. Continue monitoring.'];
-}
-[$stageName, $stageKey, $stageDesc] = detectStage($temp, $ph, $gas);
-
-// ── Automations + Recommendations ────────────────────────────────────────────
+// ── Automations + Recommendations ─────────────────────────────────────────
 $automations = []; $recommendations = []; $phase = 'aerobic';
 
 if ($temp > 70) {
@@ -111,8 +115,18 @@ $mixerCycles  = ($humidity >= 70 || ($gas >= 800 && $ph < 6.0)) ? '4× per day (
 $moistureAct  = ($humidity >= 70) ? 'Open vents + engage motor' : ($humidity < 45 ? 'Add 200ml water evenly' : 'No adjustment needed');
 $phAction     = ($ph < 6.0) ? 'Add wood ash or dry leaves' : ($ph > 8.5 ? 'Add coffee grounds or acidic greens' : 'pH nominal — no action');
 
-$sColors   = ['ok'=>'#22c55e','warn'=>'#f59e0b','crit'=>'#ef4444'];
-$ringColor = $readiness >= 80 ? '#4CAF50' : ($readiness >= 50 ? '#f59e0b' : '#ef4444');
+$sColors = ['ok'=>'#22c55e','warn'=>'#f59e0b','crit'=>'#ef4444'];
+
+// Ring SVG
+$ringColors = [
+    'no_compost'   => '#94a3b8',
+    'initial'      => '#fb923c',
+    'mesophilic'   => '#f59e0b',
+    'thermophilic' => '#84cc16',
+    'late_thermo'  => '#4CAF50',
+    'maturation'   => '#22c55e',
+];
+$ringColor = $ringColors[$stageKey] ?? '#94a3b8';
 $circ      = 2 * M_PI * 62;
 $offset    = $circ - ($readiness / 100) * $circ;
 ?>
@@ -181,9 +195,12 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
 .ring-wrap svg{transform:rotate(-90deg);}
 .ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
 .ring-pct{font-size:30px;font-weight:900;line-height:1;}.ring-sub{font-size:11px;color:var(--muted);}
-.badge-thermophilic{background:#ffedd5;color:#c2410c;}.badge-mesophilic{background:#dbeafe;color:#1d4ed8;}
-.badge-maturation{background:#f3e8ff;color:#7e22ce;}.badge-dormant{background:#f1f5f9;color:#475569;}
-.badge-toohot{background:#fee2e2;color:#b91c1c;}.badge-transition{background:#fef9c3;color:#a16207;}
+.badge-no_compost{background:#f1f5f9;color:#475569;}
+.badge-initial{background:#fff7ed;color:#c2410c;}
+.badge-mesophilic{background:#fffbeb;color:#b45309;}
+.badge-thermophilic{background:#f7fee7;color:#3f6212;}
+.badge-late_thermo{background:#f0fdf4;color:#166534;}
+.badge-maturation{background:#dcfce7;color:#14532d;}
 .stage-badge{display:inline-block;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600;}
 .auto-card{border-radius:14px;padding:16px;border-left:4px solid;display:flex;align-items:flex-start;gap:12px;margin-bottom:8px;}
 .auto-card.ok{background:#f0fdf4;border-color:var(--ok);}.auto-card.warn{background:#fffbeb;border-color:var(--warn);}
@@ -203,66 +220,50 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
 .ml-badge{background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:#fff;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;}
 .ml-badge-warn{background:linear-gradient(135deg,#78350f,#f59e0b);}
 
+/* ── Outcome breakdown pills ───────────────────────────────────────────── */
+.outcome-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;margin:2px;}
+.outcome-pill.success{background:#dcfce7;color:#166534;}
+.outcome-pill.partial{background:#fef9c3;color:#854d0e;}
+.outcome-pill.failed{background:#fee2e2;color:#991b1b;}
 
- /* Delete button */
-    .btn-delete{background:linear-gradient(135deg,#7f1d1d,#ef4444);color:#fff;border:none;
-                border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;
-                transition:.2s;font-family:Poppins,sans-serif;box-shadow:0 4px 16px rgba(239,68,68,.25);
-                width:100%;margin-top:8px;}
-    .btn-delete:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(239,68,68,.35);}
-    .btn-delete:disabled{opacity:.6;cursor:not-allowed;transform:none;}
-/* Save button */
-.btn-save{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;border:none;
-          border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;
-          transition:.2s;font-family:Poppins,sans-serif;box-shadow:0 4px 16px rgba(76,175,80,.25);width:100%;}
+/* ── Benchmark highlight box ──────────────────────────────────────────── */
+.benchmark-box{background:linear-gradient(135deg,#1e3a8a12,#3b82f608);border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-top:8px;}
+.benchmark-label{font-size:10px;color:#1e40af;text-transform:uppercase;letter-spacing:.06em;font-weight:700;}
+.benchmark-value{font-size:22px;font-weight:900;color:#1e3a8a;line-height:1.2;}
+.benchmark-sub{font-size:11px;color:#3b82f6;margin-top:2px;}
+
+/* ── Outcome weighting explainer ─────────────────────────────────────── */
+.weight-explainer{background:#f8fafc;border-radius:10px;padding:10px 14px;margin-top:10px;border:1px solid #e2e8f0;}
+.weight-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:12px;}
+.weight-row:not(:last-child){border-bottom:1px solid #f1f5f9;}
+.weight-bar-track{width:80px;height:6px;background:#e9ecef;border-radius:6px;overflow:hidden;}
+.weight-bar-fill{height:100%;border-radius:6px;}
+
+.btn-delete{background:linear-gradient(135deg,#7f1d1d,#ef4444);color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;transition:.2s;font-family:Poppins,sans-serif;box-shadow:0 4px 16px rgba(239,68,68,.25);width:100%;margin-top:8px;}
+.btn-delete:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(239,68,68,.35);}
+.btn-delete:disabled{opacity:.6;cursor:not-allowed;transform:none;}
+.btn-save{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;transition:.2s;font-family:Poppins,sans-serif;box-shadow:0 4px 16px rgba(76,175,80,.25);width:100%;}
 .btn-save:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(76,175,80,.35);}
 .btn-save:disabled{opacity:.6;cursor:not-allowed;transform:none;}
-
-/* Reset overlay */
-.reset-overlay{
-    display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;
-    align-items:center;justify-content:center;
-}
+.reset-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;}
 .reset-overlay.show{display:flex;}
-.reset-modal{
-    background:#fff;border-radius:20px;padding:36px;max-width:420px;width:90%;
-    text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3);
-    animation:slideIn .3s ease;
-}
+.reset-modal{background:#fff;border-radius:20px;padding:36px;max-width:420px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3);animation:slideIn .3s ease;}
 @keyframes slideIn{from{opacity:0;transform:translateY(-30px)}to{opacity:1;transform:translateY(0)}}
 .reset-modal .reset-icon{font-size:52px;margin-bottom:16px;}
 .reset-modal h4{font-size:20px;font-weight:800;margin-bottom:8px;}
 .reset-modal p{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:24px;}
-.reset-modal .btn-confirm{
-    background:linear-gradient(135deg,#166534,#4CAF50);color:#fff;border:none;
-    border-radius:12px;padding:12px 28px;font-size:14px;font-weight:700;
-    cursor:pointer;width:100%;margin-bottom:10px;transition:.2s;
-}
+.reset-modal .btn-confirm{background:linear-gradient(135deg,#166534,#4CAF50);color:#fff;border:none;border-radius:12px;padding:12px 28px;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-bottom:10px;transition:.2s;}
 .reset-modal .btn-confirm:hover{transform:translateY(-2px);}
-.reset-modal .btn-cancel{
-    background:transparent;border:1.5px solid #e2e8f0;border-radius:12px;
-    padding:11px 28px;font-size:14px;font-weight:600;cursor:pointer;width:100%;
-    transition:.2s;color:#555;
-}
+.reset-modal .btn-cancel{background:transparent;border:1.5px solid #e2e8f0;border-radius:12px;padding:11px 28px;font-size:14px;font-weight:600;cursor:pointer;width:100%;transition:.2s;color:#555;}
 .reset-modal .btn-cancel:hover{background:#f8fafc;}
-
-/* Success overlay */
-.success-overlay{
-    display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;
-    align-items:center;justify-content:center;
-}
+.success-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;}
 .success-overlay.show{display:flex;}
-.success-modal{
-    background:#fff;border-radius:20px;padding:36px;max-width:400px;width:90%;
-    text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.25);
-    animation:slideIn .3s ease;
-}
+.success-modal{background:#fff;border-radius:20px;padding:36px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.25);animation:slideIn .3s ease;}
 .success-modal .checkmark{font-size:56px;margin-bottom:12px;}
 .success-modal h4{font-size:20px;font-weight:800;color:#166534;margin-bottom:8px;}
 .success-modal p{font-size:13px;color:var(--muted);line-height:1.6;}
 .progress-ring{width:60px;height:60px;margin:20px auto 0;}
-.progress-ring circle{fill:none;stroke:#4CAF50;stroke-width:4;stroke-linecap:round;
-    stroke-dasharray:157;stroke-dashoffset:157;animation:ring 3s linear forwards;}
+.progress-ring circle{fill:none;stroke:#4CAF50;stroke-width:4;stroke-linecap:round;stroke-dasharray:157;stroke-dashoffset:157;animation:ring 3s linear forwards;}
 @keyframes ring{to{stroke-dashoffset:0;}}
 </style>
 </head>
@@ -278,7 +279,7 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
         <div style="width:44px;height:44px;background:linear-gradient(135deg,#166534,#4ade80);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 14px rgba(74,222,128,.3);">🧠</div>
         <div>
             <h4 class="mb-0 fw-bold">AI Compost Advisor</h4>
-            <div style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">Garden Waste · Local ML · No External API</div>
+            <div style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;">Garden Waste · Outcome-Weighted k-NN · No External API</div>
         </div>
         <div class="ms-auto d-flex gap-2 flex-wrap">
             <span class="phase-pill <?php echo $phase==='aerobic'?'phase-aerobic':'phase-anaerobic';?>">
@@ -295,19 +296,22 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
         <div class="sensor-pill"><div class="s-icon">💨</div><div class="s-label">Gas / CO₂</div><div class="s-value" id="liveGas"><?php echo number_format($gas,2);?> ppm</div></div>
         <div class="sensor-pill"><div class="s-icon">⚗️</div><div class="s-label">pH Level</div><div class="s-value" id="livePH"><?php echo number_format($ph,1);?></div></div>
         <div class="sensor-pill"><div class="s-icon">⚖️</div><div class="s-label">Weight</div><div class="s-value" id="liveWeight"><?php echo number_format($weight,4);?> kg</div></div>
-        <div class="sensor-pill"><div class="s-icon">📉</div><div class="s-label">Weight Loss</div><div class="s-value" id="liveWeightLoss"><?php echo $weightLoss;?>%</div></div>
+        <div class="sensor-pill"><div class="s-icon">📉</div><div class="s-label">Credited Loss</div><div class="s-value" id="liveWeightLoss"><?php echo round($weightLoss,1);?>%</div></div>
     </div>
 
-    <!-- Weight Progress -->
+    <!-- Weight Progress Bar -->
     <div class="card p-3 mb-3">
         <div class="d-flex justify-content-between mb-1">
-            <small class="fw-semibold" style="color:var(--muted);">Decomposition Progress (Weight Loss)</small>
-            <small class="fw-bold text-success"><?php echo $weightLoss;?>%</small>
+            <small class="fw-semibold" style="color:var(--muted);">Decomposition Progress (Credited Weight Loss)</small>
+            <small class="fw-bold text-success"><?php echo round($weightLoss,1);?>%</small>
         </div>
         <div class="wl-bar-wrap"><div class="wl-bar" id="wlBar" style="width:<?php echo min($weightLoss,100);?>%"></div></div>
         <div class="d-flex justify-content-between mt-1">
             <small class="text-muted">Initial: <?php echo number_format($initWeight,4);?> kg</small>
-            <small class="text-muted">Current: <?php echo number_format($weight,4);?> kg</small>
+            <small class="text-muted">Current: <?php echo number_format($weight,4);?> kg · <?php echo round($elapsedHours,1); ?>h elapsed</small>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;">
+            ℹ️ "Credited loss" = gradual decomposition only. Fast weight drops are capped to prevent false high readings.
         </div>
     </div>
 
@@ -332,6 +336,11 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
                     <div class="section-title">Compost Stage</div>
                     <span class="stage-badge badge-<?php echo $stageKey;?> mb-2 d-inline-block"><?php echo $stageName;?></span>
                     <div style="font-size:12px;color:var(--muted);line-height:1.5;"><?php echo $stageDesc;?></div>
+                    <?php if ($stageCeiling > 0): ?>
+                    <div style="font-size:10px;color:var(--muted);margin-top:6px;opacity:.8;">
+                        Stage ceiling: <?php echo $stageCeiling;?>% · <?php echo round($elapsedHours,1);?>h elapsed
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -340,35 +349,94 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
             <div class="card p-4 h-100">
                 <div class="d-flex align-items-center gap-2 mb-3">
                     <span style="font-size:18px;">🧠</span>
-                    <span class="section-title mb-0">k-NN Prediction from Past Sessions</span>
+                    <span class="section-title mb-0">Outcome-Weighted k-NN Prediction</span>
                     <span class="ms-auto <?php echo $sessionCount>0?'ml-badge':'ml-badge ml-badge-warn';?>">
                         <?php echo $sessionCount;?> session<?php echo $sessionCount!==1?'s':'';?>
                     </span>
                 </div>
 
+                <?php if ($sessionCount > 0): ?>
+
+                <!-- Session outcome breakdown -->
+                <div class="d-flex flex-wrap gap-1 mb-3">
+                    <span class="outcome-pill success">✅ <?php echo $successSessions;?> success</span>
+                    <span class="outcome-pill partial">⚠️ <?php echo $partialSessions;?> partial</span>
+                    <span class="outcome-pill failed">❌ <?php echo $failedSessions;?> failed</span>
+                </div>
+
                 <?php if ($predictedDays !== null): ?>
-                <div class="mb-3">
-                    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Estimated Days to Ready</div>
+                <div class="mb-2">
+                    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">AI Estimated Days Remaining</div>
                     <div style="font-size:36px;font-weight:900;color:var(--brand-dark);line-height:1.1;">
                         ~<?php echo $predictedDays;?> <span style="font-size:16px;font-weight:500;">days</span>
                     </div>
-                    <div style="font-size:12px;color:var(--muted);">Based on <?php echo $sessionCount;?> past session<?php echo $sessionCount!==1?'s':'';?> via weighted k-NN.</div>
+                    <div style="font-size:12px;color:var(--muted);">
+                        Weighted k-NN from <?php echo $sessionCount;?> session<?php echo $sessionCount!==1?'s':'';?> —
+                        successful cycles have the most influence.
+                    </div>
+                    <div style="font-size:11px;color:#166534;background:#f0fdf4;border-radius:8px;padding:6px 10px;margin-top:6px;">
+                        ✅ ML influence on readiness score: <strong><?php echo $mlInfluencePct;?>%</strong>
+                        (grows as more sessions are saved — max 40%)
+                    </div>
                 </div>
+                <?php endif; ?>
+
+                <!-- Fastest success benchmark -->
+                <?php if ($successBenchmarkDays !== null): ?>
+                <div class="benchmark-box">
+                    <div class="benchmark-label">🏆 Fastest Successful Cycle</div>
+                    <div class="benchmark-value"><?php echo $successBenchmarkDays;?> days</div>
+                    <div class="benchmark-sub">
+                        This is your best recorded result. The AI blends this target
+                        (30% weight) with the k-NN prediction (70%) so future estimates
+                        always aspire toward your fastest known successful cycle.
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <!-- Outcome weighting explainer -->
+                <div class="weight-explainer mt-3">
+                    <div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">How outcomes affect predictions</div>
+                    <div class="weight-row">
+                        <span>✅ Success</span>
+                        <div class="weight-bar-track"><div class="weight-bar-fill" style="width:100%;background:#22c55e;"></div></div>
+                        <span style="font-size:11px;font-weight:700;color:#166534;">Full influence</span>
+                    </div>
+                    <div class="weight-row">
+                        <span>⚠️ Partial</span>
+                        <div class="weight-bar-track"><div class="weight-bar-fill" style="width:55%;background:#f59e0b;"></div></div>
+                        <span style="font-size:11px;font-weight:700;color:#92400e;">Reduced (×0.56)</span>
+                    </div>
+                    <div class="weight-row">
+                        <span>❌ Failed</span>
+                        <div class="weight-bar-track"><div class="weight-bar-fill" style="width:28%;background:#ef4444;"></div></div>
+                        <span style="font-size:11px;font-weight:700;color:#991b1b;">Minimal (×0.29)</span>
+                    </div>
+                </div>
+
                 <?php else: ?>
+                <!-- No sessions yet -->
                 <div class="mb-3" style="background:#f8fafc;border-radius:12px;padding:16px;text-align:center;">
                     <div style="font-size:24px;margin-bottom:8px;">📊</div>
                     <div style="font-weight:600;margin-bottom:4px;">No Past Sessions Yet</div>
-                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">Complete a composting cycle then save it to train the AI.</div>
+                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">
+                        Complete a composting cycle then save it as <strong>Successful</strong> to train the AI.<br>
+                        Successful sessions will become the benchmark for future predictions.
+                    </div>
                 </div>
                 <?php endif; ?>
 
                 <!-- Save Session Form -->
-                <div style="background:#f0fdf4;border-radius:12px;padding:14px;border:1px solid #bbf7d0;">
+                <div style="background:#f0fdf4;border-radius:12px;padding:14px;border:1px solid #bbf7d0;margin-top:12px;">
                     <div style="font-size:12px;font-weight:600;color:#166534;margin-bottom:10px;">
                         📝 Save Session &amp; Start New Cycle
                     </div>
                     <div style="font-size:11px;color:#15803d;background:#dcfce7;padding:8px 12px;border-radius:8px;margin-bottom:10px;line-height:1.5;">
-                        ℹ️ Saving will <strong>archive this batch's data</strong> and reset the weight baseline so a new composting cycle begins.
+                        ℹ️ Saving will <strong>archive this batch's data</strong> and reset the weight baseline and cycle timer so a new composting cycle begins.<br>
+                        <strong>💡 Tip:</strong> Sessions saved as <em>Successful</em> carry the most weight in future AI predictions.
+                        <?php if ($successSessions > 0): ?>
+                        You currently have <strong><?php echo $successSessions;?> successful</strong> session<?php echo $successSessions!==1?'s':''?> guiding the AI.
+                        <?php endif; ?>
                     </div>
                     <div class="row g-2 mb-2">
                         <div class="col-6">
@@ -386,12 +454,12 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
                         </div>
                     </div>
                     <button class="btn-save" id="saveBtn" onclick="confirmSave()">
-        💾 &nbsp;Save Session &amp; Start New Cycle
-    </button>
-    <button class="btn-delete" id="deleteBtn" onclick="confirmDelete()">
-        🗑️ &nbsp;Delete Session &amp; Start New Cycle
-    </button>
-    <div id="saveMsg" style="display:none;font-size:12px;margin-top:8px;text-align:center;"></div>
+                        💾 &nbsp;Save Session &amp; Start New Cycle
+                    </button>
+                    <button class="btn-delete" id="deleteBtn" onclick="confirmDelete()">
+                        🗑️ &nbsp;Delete Session &amp; Start New Cycle
+                    </button>
+                    <div id="saveMsg" style="display:none;font-size:12px;margin-top:8px;text-align:center;"></div>
                 </div>
             </div>
         </div>
@@ -459,58 +527,39 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
 </div>
 </div>
 
-<!-- ── Confirm DELETE Modal ─────────────────────────────── -->
-    <div class="reset-overlay" id="deleteOverlay">
-        <div class="reset-modal">
-            <div class="reset-icon">🗑️</div>
-            <h4>Delete Session &amp; Start New Cycle?</h4>
-            <p>
-                This will <strong>permanently delete all history data</strong>
-                from the current composting batch — sensor readings,
-                aggregated data, and alerts.<br><br>
-                <span style="color:#ef4444;font-weight:700;">
-                    ⚠️ This will NOT be saved to the ML training data.
-                </span><br><br>
-                The weight baseline will reset so a fresh cycle begins.
-                This action <strong>cannot be undone.</strong>
-            </p>
-            <button class="btn-confirm" id="deleteConfirmBtn"
-                    style="background:linear-gradient(135deg,#7f1d1d,#ef4444);"
-                    onclick="doDelete()">
-                🗑️ &nbsp;Yes, Delete &amp; Reset
-            </button>
-            <button class="btn-cancel" onclick="closeDeleteConfirm()">Cancel</button>
-        </div>
+<!-- Delete Confirm Modal -->
+<div class="reset-overlay" id="deleteOverlay">
+    <div class="reset-modal">
+        <div class="reset-icon">🗑️</div>
+        <h4>Delete Session &amp; Start New Cycle?</h4>
+        <p>This will <strong>permanently delete all history data</strong> from the current composting batch.<br><br>
+        <span style="color:#ef4444;font-weight:700;">⚠️ This will NOT be saved to ML training data.</span><br><br>
+        The weight baseline and cycle timer will reset. This action <strong>cannot be undone.</strong></p>
+        <button class="btn-confirm" id="deleteConfirmBtn" style="background:linear-gradient(135deg,#7f1d1d,#ef4444);" onclick="doDelete()">
+            🗑️ &nbsp;Yes, Delete &amp; Reset
+        </button>
+        <button class="btn-cancel" onclick="closeDeleteConfirm()">Cancel</button>
     </div>
+</div>
 
-<!-- ── Confirm Reset Modal ──────────────────────────────────────────────── -->
+<!-- Save Confirm Modal -->
 <div class="reset-overlay" id="resetOverlay">
     <div class="reset-modal">
         <div class="reset-icon">🔄</div>
         <h4>Save &amp; Start New Cycle?</h4>
-        <p>
-            This will <strong>archive the current batch's sensor history</strong>
-            and reset the weight baseline so a fresh composting cycle begins.<br><br>
-            All pages (Dashboard, Temperature, Humidity, Gas, pH, Weight, Analytics)
-            will automatically reflect the new cycle.
-        </p>
-        <button class="btn-confirm" id="confirmBtn" onclick="doSave()">
-            ✅ &nbsp;Yes, Save &amp; Reset
-        </button>
+        <p>This will <strong>archive the current batch's sensor history</strong> and reset the weight baseline and cycle timer so a fresh composting cycle begins.<br><br>
+        All pages will automatically reflect the new cycle.</p>
+        <button class="btn-confirm" id="confirmBtn" onclick="doSave()">✅ &nbsp;Yes, Save &amp; Reset</button>
         <button class="btn-cancel" onclick="closeConfirm()">Cancel</button>
     </div>
 </div>
 
-<!-- ── Success Modal ───────────────────────────────────────────────────── -->
+<!-- Success Modal -->
 <div class="success-overlay" id="successOverlay">
     <div class="success-modal">
         <div class="checkmark">🎉</div>
         <h4>Cycle Complete!</h4>
-        <p>
-            Session saved and history archived.<br>
-            <strong>A new composting cycle has started.</strong><br><br>
-            All pages will now track fresh data from this moment.
-        </p>
+        <p>Session saved and history archived.<br><strong>A new composting cycle has started.</strong><br><br>All pages will now track fresh data from this moment.</p>
         <svg class="progress-ring" viewBox="0 0 60 60">
             <circle cx="30" cy="30" r="25" stroke="#e9ecef" stroke-width="4" fill="none"/>
             <circle cx="30" cy="30" r="25" stroke="#4CAF50" stroke-width="4" fill="none"
@@ -522,118 +571,73 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
 </div>
 
 <script>
-let pendingDays    = null;
-let pendingOutcome = null;
+let pendingDays = null, pendingOutcome = null;
 
-// Step 1: validate then show confirm modal
 function confirmSave() {
     const days    = parseInt(document.getElementById('actualDays').value);
     const outcome = document.getElementById('outcomeSelect').value;
     const msg     = document.getElementById('saveMsg');
-
     if (!days || days < 1) {
-        msg.style.display = 'block';
-        msg.style.color   = '#ef4444';
-        msg.textContent   = '⚠️ Please enter the number of days it took.';
-        return;
+        msg.style.display='block'; msg.style.color='#ef4444';
+        msg.textContent='⚠️ Please enter the number of days it took.'; return;
     }
-    msg.style.display = 'none';
-    pendingDays    = days;
-    pendingOutcome = outcome;
+    msg.style.display='none';
+    pendingDays=days; pendingOutcome=outcome;
     document.getElementById('resetOverlay').classList.add('show');
 }
+function closeConfirm()       { document.getElementById('resetOverlay').classList.remove('show'); }
+function confirmDelete()      { document.getElementById('deleteOverlay').classList.add('show'); }
+function closeDeleteConfirm() { document.getElementById('deleteOverlay').classList.remove('show'); }
 
-function closeConfirm() {
-    document.getElementById('resetOverlay').classList.remove('show');
-}
-function confirmDelete() {
-        document.getElementById('deleteOverlay').classList.add('show');
-    }
-
-    function closeDeleteConfirm() {
+async function doDelete() {
+    document.getElementById('deleteConfirmBtn').disabled=true;
+    document.getElementById('deleteConfirmBtn').textContent='⏳ Deleting...';
+    try {
+        const res  = await fetch('delete_compost_session.php', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error||'Delete failed');
         document.getElementById('deleteOverlay').classList.remove('show');
+        const so=document.getElementById('successOverlay');
+        so.querySelector('h4').textContent='Session Deleted!';
+        so.querySelector('p').innerHTML='All history data has been cleared.<br><strong>A new composting cycle has started.</strong><br><br>All pages will now track fresh data from this moment.';
+        so.classList.add('show');
+        setTimeout(()=>window.location.reload(),3000);
+    } catch(e) {
+        document.getElementById('deleteOverlay').classList.remove('show');
+        const msg=document.getElementById('saveMsg');
+        msg.style.display='block'; msg.style.color='#ef4444'; msg.textContent='❌ '+e.message;
+        document.getElementById('deleteConfirmBtn').disabled=false;
+        document.getElementById('deleteConfirmBtn').textContent='🗑️ Yes, Delete & Reset';
     }
+}
 
-    async function doDelete() {
-        document.getElementById('deleteConfirmBtn').disabled    = true;
-        document.getElementById('deleteConfirmBtn').textContent = '⏳ Deleting...';
-
-        try {
-            const res  = await fetch('delete_compost_session.php', {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({ confirm: true }),
-            });
-            const data = await res.json();
-
-            if (!data.success) throw new Error(data.error || 'Delete failed');
-
-            document.getElementById('deleteOverlay').classList.remove('show');
-
-            // Re-use the success overlay with different text
-            const successOverlay = document.getElementById('successOverlay');
-            successOverlay.querySelector('h4').textContent  = 'Session Deleted!';
-            successOverlay.querySelector('p').innerHTML     =
-                'All history data has been cleared.<br>'
-                + '<strong>A new composting cycle has started.</strong><br><br>'
-                + 'All pages will now track fresh data from this moment.';
-            successOverlay.classList.add('show');
-
-            setTimeout(() => { window.location.reload(); }, 3000);
-
-        } catch (e) {
-            document.getElementById('deleteOverlay').classList.remove('show');
-            const msg         = document.getElementById('saveMsg');
-            msg.style.display = 'block';
-            msg.style.color   = '#ef4444';
-            msg.textContent   = '❌ ' + e.message;
-            document.getElementById('deleteConfirmBtn').disabled    = false;
-            document.getElementById('deleteConfirmBtn').textContent = '🗑️ Yes, Delete & Reset';
-        }
-    }
-
-// Step 2: actually save
 async function doSave() {
-    document.getElementById('confirmBtn').disabled    = true;
-    document.getElementById('confirmBtn').textContent = '⏳ Saving...';
-
+    document.getElementById('confirmBtn').disabled=true;
+    document.getElementById('confirmBtn').textContent='⏳ Saving...';
     const payload = {
         temp:        <?php echo $temp;?>,
         humidity:    <?php echo $humidity;?>,
         gas:         <?php echo $gas;?>,
         ph:          <?php echo $ph;?>,
-        weightLoss:  <?php echo $weightLoss;?>,
+        weightLoss:  <?php echo round($weightLoss,1);?>,
         daysToReady: pendingDays,
         outcome:     pendingOutcome,
         readiness:   <?php echo round($readiness,1);?>,
         savedAt:     new Date().toISOString(),
     };
-
     try {
-        const res  = await fetch('save_compost_session.php', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify(payload),
-        });
+        const res  = await fetch('save_compost_session.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
         const data = await res.json();
-
-        if (!data.success) throw new Error(data.error || 'Save failed');
-
-        // Hide confirm, show success
+        if (!data.success) throw new Error(data.error||'Save failed');
         document.getElementById('resetOverlay').classList.remove('show');
         document.getElementById('successOverlay').classList.add('show');
-
-        // Reload after 3 s so the page reflects the new cycle
-        setTimeout(() => { window.location.reload(); }, 3000);
-
-    } catch (e) {
+        setTimeout(()=>window.location.reload(),3000);
+    } catch(e) {
         document.getElementById('resetOverlay').classList.remove('show');
-        const msg      = document.getElementById('saveMsg');
-        msg.style.display = 'block';
-        msg.style.color   = '#ef4444';
-        msg.textContent   = '❌ ' + e.message;
-        document.getElementById('confirmBtn').disabled    = false;
-        document.getElementById('confirmBtn').textContent = '✅ Yes, Save & Reset';
+        const msg=document.getElementById('saveMsg');
+        msg.style.display='block'; msg.style.color='#ef4444'; msg.textContent='❌ '+e.message;
+        document.getElementById('confirmBtn').disabled=false;
+        document.getElementById('confirmBtn').textContent='✅ Yes, Save & Reset';
     }
 }
 </script>

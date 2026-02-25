@@ -107,6 +107,7 @@ try {
         'newInitialWeight' => (float)$currentWeight,
         'message'        => 'Session saved. History archived. New cycle started.',
     ]);
+    
 
 } catch (Throwable $e) {
     http_response_code(500);

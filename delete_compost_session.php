@@ -25,6 +25,8 @@
 require_once 'firebase_config.php';
 header('Content-Type: application/json');
 
+$database->getReference("sensors/weight/cycle_start_ts")->remove();
+
 // Only accept POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

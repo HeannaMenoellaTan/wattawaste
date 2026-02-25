@@ -324,7 +324,7 @@ let isVerified = false;
 onAuthStateChanged(auth, (user) => {
     if (!user) {
         console.log('❌ No user found, redirecting to login...');
-        window.location.href = 'login.php';
+        window.location.href = 'login.html';
     } else {
         console.log('✅ User authenticated:', user.email || user.phoneNumber);
         currentUser = user;
@@ -631,7 +631,7 @@ canvas {
 /* Floating Add Button */
 .add-plant-btn {
     position: fixed;
-    bottom: 30px;
+    bottom: 100px;        /* ← moved UP, above the notification bell */
     right: 30px;
     width: 60px;
     height: 60px;
@@ -643,8 +643,10 @@ canvas {
     cursor: pointer;
     box-shadow: 0 6px 20px rgba(35, 237, 153, 0.4);
     transition: all 0.3s ease;
-    z-index: 1000;
+    z-index: 99999;       /* ← higher than the notification bell */
     display: none;
+    align-items: center;
+    justify-content: center;
 }
 
 .add-plant-btn:hover {
@@ -982,7 +984,7 @@ canvas {
     }
     
     .add-plant-btn {
-        bottom: 20px;
+        bottom: 90px;
         right: 20px;
     }
 }

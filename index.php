@@ -1,4 +1,12 @@
 <?php
+/**
+ * index.php — Dashboard
+ * 
+ * KEY CHANGE: All readiness/stage logic removed from this file.
+ * predict_readiness.php is the SINGLE SOURCE OF TRUTH.
+ * This file only fetches current sensor values for the initial render.
+ * JavaScript polls predict_readiness.php every 10s for live updates.
+ */
 require_once 'firebase_config.php';
 $database = getDatabase();
 
@@ -9,153 +17,6 @@ $ph            = floatval($database->getReference("sensors/ph/latest")->getValue
 $capacity      = 100;
 $currentWeight = floatval($database->getReference("sensors/weight/latest")->getValue() ?? 0);
 $initialWeight = floatval($database->getReference("sensors/weight/initial")->getValue() ?? $currentWeight);
-$rawSessions   = $database->getReference("compost_sessions")->getValue() ?? [];
-
-$sessions = [];
-foreach ($rawSessions as $s) {
-    if (isset($s['temp'], $s['humidity'], $s['gas'], $s['ph'], $s['weightLoss'], $s['daysToReady'])) {
-        $sessions[] = $s;
-    }
-}
-
-$weightLoss = ($initialWeight > 0)
-    ? max(0, round((($initialWeight - $currentWeight) / $initialWeight) * 100, 2))
-    : 0;
-
-// ── k-NN predictor ────────────────────────────────────────────────────────
-function knnPredictDays(array $sessions, float $t, float $h, float $g, float $p, float $wl, int $k = 3): ?float {
-    if (empty($sessions)) return null;
-    $dist = [];
-    foreach ($sessions as $i => $s) {
-        $dist[$i] = sqrt(
-            pow(($t  - $s['temp'])       / 80,   2) +
-            pow(($h  - $s['humidity'])   / 100,  2) +
-            pow(($g  - $s['gas'])        / 1000, 2) +
-            pow(($p  - $s['ph'])         / 14,   2) +
-            pow(($wl - $s['weightLoss']) / 100,  2)
-        );
-    }
-    asort($dist);
-    $topK = array_slice(array_keys($dist), 0, $k, true);
-    $ws = 0; $wt = 0;
-    foreach ($topK as $i) {
-        $w   = 1 / max($dist[$i], 0.0001);
-        $ws += $w * $sessions[$i]['daysToReady'];
-        $wt += $w;
-    }
-    return $wt > 0 ? round($ws / $wt, 1) : null;
-}
-
-$predictedDays = knnPredictDays($sessions, $temp, $humidity, $gas, $ph, $weightLoss);
-
-// ── Multi-sensor scoring ──────────────────────────────────────────────────
-function scoreTempProgress(float $t): float {
-    if ($t >= 20 && $t < 35)  return 20;
-    if ($t >= 35 && $t < 45)  return 45;
-    if ($t >= 45 && $t <= 65) return 70;
-    if ($t > 65  && $t <= 70) return 55;
-    if ($t > 70)               return 20;
-    if ($t > 10  && $t < 20)  return 10;
-    return 5;
-}
-function scoreHumidityProgress(float $h): float {
-    if ($h >= 45 && $h <= 60) return 100;
-    if ($h >= 61 && $h <= 69) return 70;
-    if ($h >= 70 && $h <= 79) return 40;
-    if ($h >= 80)              return 15;
-    if ($h >= 35 && $h < 45)  return 80;
-    if ($h < 35)               return 30;
-    return 50;
-}
-function scoreGasProgress(float $g): float {
-    if ($g < 100)              return 85;
-    if ($g >= 100 && $g < 200) return 90;
-    if ($g >= 200 && $g < 400) return 70;
-    if ($g >= 400 && $g < 600) return 50;
-    if ($g >= 600 && $g < 800) return 30;
-    if ($g >= 800)             return 10;
-    return 50;
-}
-function scoreWeightLoss(float $wl): float {
-    if ($wl >= 60)             return 100;
-    if ($wl >= 45 && $wl < 60) return 90;
-    if ($wl >= 30 && $wl < 45) return 70;
-    if ($wl >= 15 && $wl < 30) return 45;
-    if ($wl >= 5  && $wl < 15) return 20;
-    if ($wl > 0   && $wl < 5)  return 10;
-    return 5;
-}
-function scorePH(float $p): float {
-    if ($p >= 6.5 && $p <= 7.5) return 100;
-    if ($p > 7.5  && $p <= 8.0) return 85;
-    if ($p >= 6.0 && $p < 6.5)  return 70;
-    if ($p > 8.0  && $p <= 8.5) return 60;
-    if ($p >= 5.5 && $p < 6.0)  return 40;
-    if ($p > 8.5)                return 30;
-    if ($p < 5.5  && $p > 0)    return 20;
-    return 50;
-}
-function aiDaysFactor(?float $days): float {
-    if ($days === null)  return 1.0;
-    if ($days <= 1)      return 1.15;
-    if ($days <= 3)      return 1.10;
-    if ($days <= 7)      return 1.05;
-    if ($days <= 14)     return 1.0;
-    if ($days <= 30)     return 0.95;
-    return 0.90;
-}
-
-$tScore   = scoreTempProgress($temp);
-$hScore   = scoreHumidityProgress($humidity);
-$gScore   = scoreGasProgress($gas);
-$wlScore  = scoreWeightLoss($weightLoss);
-$phScore  = scorePH($ph);
-$aiFactor = aiDaysFactor($predictedDays);
-
-$compositeRaw = (
-    $wlScore * 0.30 +
-    $tScore  * 0.25 +
-    $hScore  * 0.20 +
-    $gScore  * 0.15 +
-    $phScore * 0.10
-);
-$composite = min(100, max(0, round($compositeRaw * $aiFactor, 1)));
-
-// ── Stage detection ───────────────────────────────────────────────────────
-function detectCompositeStage(float $score, float $t, float $h, float $g, float $wl, float $p): array {
-    if ($t > 70)
-        return ['🔥 Overheating', 'toohot',
-            'Temperature is dangerously high. <strong>Ventilation triggered.</strong> Cooling required before decomposition resumes safely.', '#ef4444'];
-    if ($g >= 800 && $p < 6.0)
-        return ['⚠️ Anaerobic Shift', 'anaerobic',
-            'High gas + low pH indicates anaerobic conditions. <strong>Mixer auto-engaged</strong> to restore oxygen flow.', '#f59e0b'];
-    if ($score >= 88)
-        return ['Maturation Stage (Curing)', 'maturation',
-            'Temperature cooling, gases stabilizing, weight loss plateauing. Compost is nearly finished. <strong>Nearly ready to harvest!</strong> Weight has reduced by '.round($wl,1).'%, indicating mature compost.', '#22c55e'];
-    if ($score >= 72)
-        return ['Late Thermophilic Stage', 'late_thermo',
-            'Active decomposition winding down. High microbial activity has processed most material. Final curing phase approaching. Weight reduced: '.round($wl,1).'%.', '#4CAF50'];
-    if ($score >= 55)
-        return ['Thermophilic Stage (Active)', 'thermophilic',
-            'Peak microbial activity. Temperature elevated, pathogens being destroyed. <strong>Excellent!</strong> Significant weight loss ('.round($wl,1).'%) shows active decomposition.', '#84cc16'];
-    if ($score >= 35)
-        return ['Mesophilic Stage (Building)', 'mesophilic',
-            'Early microbes colonizing organic material. Temperature and gas building toward thermophilic phase. Weight loss: '.round($wl,1).'%. This is normal for the initial stage.', '#f59e0b'];
-    if ($score >= 15)
-        return ['Initial Breakdown', 'initial',
-            'Fresh batch. Microorganisms beginning to establish. Conditions developing for active decomposition. Weight loss: '.round($wl,1).'%.', '#fb923c'];
-    return ['Dormant / Setup', 'dormant',
-        'Minimal microbial activity detected. Weight loss: '.round($wl,1).'%. Bin may need material balance, moisture, or temperature adjustment.', '#94a3b8'];
-}
-
-[$stageName, $stageKey, $stageDesc, $stageColor] = detectCompositeStage($composite, $temp, $humidity, $gas, $weightLoss, $ph);
-
-// Fertilizer calcs
-$predictedFertilizer = $initialWeight > 0 ? round($initialWeight * 0.50, 4) : 0;
-$actualFertilizer    = $currentWeight;
-
-// Ring color
-$ringColor = $composite >= 80 ? '#4CAF50' : ($composite >= 55 ? '#84cc16' : ($composite >= 35 ? '#f59e0b' : '#ef4444'));
 
 include 'sideabr.php';
 ?>
@@ -316,21 +177,22 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
 .card { border:none; border-radius:16px; background:var(--panel); box-shadow:0 6px 16px rgba(2,6,23,.06); transition:transform .2s,box-shadow .2s; }
 .card:hover { transform:translateY(-3px); box-shadow:0 12px 26px rgba(2,6,23,.12); }
 
-/* ── Donut chart (original Chart.js) ── */
 .chart-container { position:relative; width:min(320px,100%); aspect-ratio:1/1; margin:auto; }
 .chart-label { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; }
 .chart-label #readinessLabel  { font-weight:800; font-size:clamp(20px,6vw,28px); line-height:1; }
 .chart-label #readinessStatus { color:var(--muted); font-size:.9rem; }
 
-/* Stage card */
+/* Stage card — color injected dynamically by JS */
 .stage-card-inner {
-    background:linear-gradient(135deg, <?php echo $stageColor; ?>18, <?php echo $stageColor; ?>08);
-    border-left:4px solid <?php echo $stageColor; ?>;
+    background:linear-gradient(135deg,#4CAF5018,#4CAF5008);
+    border-left:4px solid #4CAF50;
     border-radius:12px; padding:14px 16px;
 }
-.stage-name { font-size:16px; font-weight:700; color:<?php echo $stageColor; ?>; margin-bottom:6px; }
+.stage-name { font-size:16px; font-weight:700; color:#4CAF50; margin-bottom:6px; }
 
-/* Sensor cards */
+/* Debug/info badge */
+.stage-debug { font-size:10px; color:var(--muted); margin-top:6px; opacity:.8; }
+
 .bar-container { width:100%; background:#E9ECEF; height:12px; border-radius:10px; overflow:hidden; position:relative; }
 .bar { height:100%; width:0%; border-radius:10px; transition:width .9s ease; }
 .bar::after { content:""; position:absolute; inset:0; transform:translateX(-100%); background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent); animation:shimmer 1.8s infinite; }
@@ -383,7 +245,7 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
 
 <div class="top-section">
 
-    <!-- LEFT: Chart.js Donut (original UI) -->
+    <!-- LEFT: Chart.js Donut -->
     <div class="card p-3 chart-container" id="chartCard">
         <canvas id="progressChart" aria-label="Compost Readiness"></canvas>
         <div class="chart-label">
@@ -411,11 +273,11 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
             <div class="mt-2">
                 <div class="d-flex justify-content-between flex-wrap gap-1">
                     <span>Predicted:</span>
-                    <span id="predictedOutput" class="fw-bold text-success"><?php echo number_format($predictedFertilizer,4); ?> kg</span>
+                    <span id="predictedOutput" class="fw-bold text-success">0.0000 kg</span>
                 </div>
                 <div class="d-flex justify-content-between flex-wrap gap-1">
                     <span>Actual:</span>
-                    <span id="actualOutput" class="fw-bold text-primary"><?php echo number_format($actualFertilizer,4); ?> kg</span>
+                    <span id="actualOutput" class="fw-bold text-primary">Not ready yet</span>
                 </div>
             </div>
             <div class="bar-container mt-3">
@@ -423,12 +285,13 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
             </div>
         </div>
 
-        <!-- Stage card (full width) -->
+        <!-- Stage card (full width) — populated by predict_readiness.php via JS -->
         <div class="card p-3 stage-card">
             <small class="small-muted fw-bold">🧬 Compost Stage</small>
-            <div class="stage-card-inner mt-2">
-                <div class="stage-name" id="compostStage"><?php echo $stageName; ?></div>
-                <div id="compostStageDesc" class="small" style="line-height:1.6;"><?php echo $stageDesc; ?></div>
+            <div class="stage-card-inner mt-2" id="stageCardInner">
+                <div class="stage-name" id="compostStage">Loading...</div>
+                <div id="compostStageDesc" class="small" style="line-height:1.6;">Fetching stage from server...</div>
+                <div class="stage-debug" id="stageDebug"></div>
             </div>
         </div>
 
@@ -514,80 +377,40 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
 </div><!-- end .main -->
 
 <script>
-// ── JS mirror of PHP scoring (for live Firebase updates) ──────────────────
-function scoreTempProgress(t) {
-    if (t>=20&&t<35)  return 20; if (t>=35&&t<45)  return 45;
-    if (t>=45&&t<=65) return 70; if (t>65&&t<=70)  return 55;
-    if (t>70)         return 20; if (t>10&&t<20)   return 10; return 5;
-}
-function scoreHumidityProgress(h) {
-    if (h>=45&&h<=60) return 100; if (h>=61&&h<=69) return 70;
-    if (h>=70&&h<=79) return 40;  if (h>=80)        return 15;
-    if (h>=35&&h<45)  return 80;  if (h<35)         return 30; return 50;
-}
-function scoreGasProgress(g) {
-    if (g<100)         return 85; if (g>=100&&g<200) return 90;
-    if (g>=200&&g<400) return 70; if (g>=400&&g<600) return 50;
-    if (g>=600&&g<800) return 30; if (g>=800)        return 10; return 50;
-}
-function scoreWeightLoss(wl) {
-    if (wl>=60)        return 100; if (wl>=45&&wl<60) return 90;
-    if (wl>=30&&wl<45) return 70;  if (wl>=15&&wl<30) return 45;
-    if (wl>=5&&wl<15)  return 20;  if (wl>0&&wl<5)    return 10; return 5;
-}
-function scorePH(p) {
-    if (p>=6.5&&p<=7.5) return 100; if (p>7.5&&p<=8.0) return 85;
-    if (p>=6.0&&p<6.5)  return 70;  if (p>8.0&&p<=8.5) return 60;
-    if (p>=5.5&&p<6.0)  return 40;  if (p>8.5)         return 30;
-    if (p<5.5&&p>0)     return 20;  return 50;
-}
-function aiDaysFactor(days) {
-    if (days===null||days===undefined) return 1.0;
-    if (days<=1)  return 1.15; if (days<=3)  return 1.10;
-    if (days<=7)  return 1.05; if (days<=14) return 1.0;
-    if (days<=30) return 0.95; return 0.90;
-}
+function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 
-// ── Live state ────────────────────────────────────────────────────────────
-let liveState = {
-    temp:     <?php echo $temp; ?>,
-    humidity: <?php echo $humidity; ?>,
-    gas:      <?php echo $gas; ?>,
-    ph:       <?php echo $ph; ?>,
-    weight:   <?php echo $currentWeight; ?>,
-    initWeight: <?php echo $initialWeight; ?>,
-    aiDays:   <?php echo $predictedDays !== null ? $predictedDays : 'null'; ?>
+// ── Stage color map (matches predict_readiness.php stages) ────────────────
+const STAGE_COLORS = {
+    'no_compost'  : '#94a3b8',
+    'initial'     : '#fb923c',
+    'mesophilic'  : '#f59e0b',
+    'thermophilic': '#84cc16',
+    'late_thermo' : '#4CAF50',
+    'maturation'  : '#22c55e',
 };
 
-// ── Composite calculation ─────────────────────────────────────────────────
-function calcComposite() {
-    const wl = liveState.initWeight > 0
-        ? Math.max(0, ((liveState.initWeight - liveState.weight) / liveState.initWeight) * 100)
-        : 0;
-    const wlS  = scoreWeightLoss(wl);
-    const tS   = scoreTempProgress(liveState.temp);
-    const hS   = scoreHumidityProgress(liveState.humidity);
-    const gS   = scoreGasProgress(liveState.gas);
-    const phS  = scorePH(liveState.ph);
-    const raw  = wlS*0.30 + tS*0.25 + hS*0.20 + gS*0.15 + phS*0.10;
-    const comp = Math.min(100, Math.max(0, parseFloat((raw * aiDaysFactor(liveState.aiDays)).toFixed(1))));
-    return { comp, wl };
-}
+// Stage descriptions — used for the stage card text
+// These must be kept in sync with predict_readiness.php
+const STAGE_DESCS = {
+    'no_compost'  : 'No compost detected. Add organic waste to begin composting.',
+    'initial'     : 'Fresh batch just added. Microorganisms beginning to establish. Weight loss and heat will build over the next few days.',
+    'mesophilic'  : 'Early-stage microbes colonizing organic material. Temperature and gas building toward thermophilic phase.',
+    'thermophilic': 'Peak microbial activity! Temperature elevated, pathogens being destroyed. Active decomposition underway.',
+    'late_thermo' : 'Active decomposition winding down. Microbial activity has processed most material. Final curing phase approaching.',
+    'maturation'  : 'Compost is cooling and stabilizing into nutrient-rich humus. <strong>Nearly ready to harvest!</strong>',
+};
 
-// ── Chart.js donut (original UI) ─────────────────────────────────────────
-// The donut % is driven by predict_readiness.php (unchanged from original).
-// The composite multi-sensor score is used ONLY for stage detection below.
+// ── Chart.js donut ─────────────────────────────────────────────────────────
 const ctx = document.getElementById('progressChart').getContext('2d');
 function makeGradient(c){ const g=c.createLinearGradient(0,0,300,0); g.addColorStop(0,'#a5d6a7'); g.addColorStop(1,'#388e3c'); return g; }
-let chart = new Chart(ctx,{
-    type:'doughnut',
-    data:{labels:['Ready','Remaining'],datasets:[{data:[0,100],backgroundColor:[makeGradient(ctx),'#e5e7eb'],borderWidth:0}]},
-    options:{rotation:-90,cutout:'70%',plugins:{legend:{display:false}},animation:{duration:700}}
+const chart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels:['Ready','Remaining'], datasets:[{data:[0,100], backgroundColor:[makeGradient(ctx),'#e5e7eb'], borderWidth:0}] },
+    options: { rotation:-90, cutout:'70%', plugins:{legend:{display:false}}, animation:{duration:700} }
 });
 
-// Called by updateChart() with the readiness value from predict_readiness.php
 function updateDonut(readiness) {
-    readiness = Math.min(Math.max(parseFloat(readiness)||0, 0), 100);
+    readiness = clamp(parseFloat(readiness)||0, 0, 100);
     chart.data.datasets[0].data = [readiness, 100 - readiness];
     chart.update();
     const label  = document.getElementById('readinessLabel');
@@ -596,163 +419,133 @@ function updateDonut(readiness) {
     if (label)  label.textContent = readiness.toFixed(1) + '%';
     if (status) {
         if      (readiness >= 90) status.textContent = '🌿 Compost ready!';
-        else if (readiness >= 60) status.textContent = '🌱 Almost ready';
-        else if (readiness >= 30) status.textContent = '🔥 Heating up';
-        else                      status.textContent = '🧤 Just started';
+        else if (readiness >= 65) status.textContent = '🌱 Almost there';
+        else if (readiness >= 35) status.textContent = '🔥 Heating up';
+        else if (readiness >= 12) status.textContent = '🌿 Building up';
+        else if (readiness >  0 ) status.textContent = '🧤 Just started';
+        else                      status.textContent = '📦 Awaiting compost';
     }
     if (card) {
         card.classList.remove('ok-glow','warn-glow','crit-glow');
-        if (readiness >= 90) card.classList.add('ok-glow');
-        else if (readiness >= 60) card.classList.add('warn-glow');
+        if      (readiness >= 80) card.classList.add('ok-glow');
+        else if (readiness >= 35) card.classList.add('warn-glow');
     }
 }
 
-// Original updateChart — fetches predict_readiness.php for donut + fertilizer
+// ── Stage card update — driven by predict_readiness.php response ───────────
+function updateStageCard(data) {
+    const stage     = data.stage || 'no_compost';
+    const stageName = data.stage_name || 'Unknown';
+    const color     = STAGE_COLORS[stage] || '#94a3b8';
+    const desc      = STAGE_DESCS[stage]  || 'Monitoring...';
+
+    const inner   = document.getElementById('stageCardInner');
+    const nameEl  = document.getElementById('compostStage');
+    const descEl  = document.getElementById('compostStageDesc');
+    const debugEl = document.getElementById('stageDebug');
+
+    if (nameEl)  { nameEl.textContent = stageName; nameEl.style.color = color; }
+    if (descEl)  descEl.innerHTML = desc;
+    if (inner)   {
+        inner.style.borderLeftColor = color;
+        inner.style.background = `linear-gradient(135deg,${color}18,${color}08)`;
+    }
+
+    // Show helpful debug info: elapsed time + stage ceiling
+    if (debugEl && data.analytics) {
+        const h = data.analytics.elapsed_hours || 0;
+        const c = data.ml ? data.ml.stage_ceiling : '?';
+        const wl = data.weight_tracking ? data.weight_tracking.credited_weight_loss : '?';
+        debugEl.textContent = `${h.toFixed(1)}h elapsed · credited loss: ${wl}% · ceiling: ${c}%`;
+    }
+}
+
+// ── Main poll: fetches predict_readiness.php (single source of truth) ──────
 function updateChart() {
     fetch('predict_readiness.php', {cache:'no-store'})
         .then(r => r.json())
         .then(data => {
+            // Donut
             updateDonut(data.readiness);
-            const fo      = data.fertilizer_output || {};
-            const pred    = parseFloat(fo.predicted_output_kg) || 0;
-            const act     = parseFloat(fo.actual_output_kg) || 0;
+
+            // Stage card — from server, NOT recalculated in JS
+            updateStageCard(data);
+
+            // Fertilizer
+            const fo   = data.fertilizer_output || {};
+            const pred = parseFloat(fo.predicted_output_kg) || 0;
+            const act  = parseFloat(fo.actual_output_kg)    || 0;
             const isReady = fo.is_ready || false;
-            const predEl  = document.getElementById('predictedOutput');
+
+            const predEl = document.getElementById('predictedOutput');
             if (predEl) predEl.textContent = pred.toFixed(4) + ' kg';
+
             const actEl = document.getElementById('actualOutput');
             if (actEl) {
-                if (isReady) { actEl.textContent = act.toFixed(4) + ' kg'; actEl.className = 'fw-bold text-success'; }
-                else         { actEl.textContent = 'Not ready yet';         actEl.className = 'fw-bold text-primary'; }
+                if (data.status === 'no_compost') {
+                    actEl.textContent = 'Waiting for compost';
+                    actEl.className   = 'fw-bold text-secondary';
+                } else if (isReady) {
+                    actEl.textContent = act.toFixed(4) + ' kg';
+                    actEl.className   = 'fw-bold text-success';
+                } else {
+                    actEl.textContent = 'Not ready yet';
+                    actEl.className   = 'fw-bold text-primary';
+                }
             }
+
             const fertBar = document.getElementById('fertBar');
             if (fertBar) fertBar.style.width = clamp(parseFloat(fo.fertilizer_percentage)||0, 0, 100) + '%';
         })
-        .catch(e => console.error('Chart error:', e));
+        .catch(e => console.error('Chart fetch error:', e));
 }
 
-// ── Stage text update ──────────────────────────────────────────────────────
-function updateStage(scores) {
-    const { comp, wl } = scores;
-    const t=liveState.temp, h=liveState.humidity, g=liveState.gas, p=liveState.ph;
-    let name, desc, color;
-    if (t > 70) {
-        name='🔥 Overheating'; color='#ef4444';
-        desc='Temperature is dangerously high. <strong>Ventilation triggered.</strong> Cooling required before decomposition resumes safely.';
-    } else if (g >= 800 && p < 6.0) {
-        name='⚠️ Anaerobic Shift'; color='#f59e0b';
-        desc='High gas + low pH indicates anaerobic conditions. <strong>Mixer auto-engaged</strong> to restore oxygen flow.';
-    } else if (comp >= 88) {
-        name='Maturation Stage (Curing)'; color='#22c55e';
-        desc='Temperature cooling, gases stabilizing, weight loss plateauing. Compost is nearly finished. <strong>Nearly ready to harvest!</strong> Weight has reduced by '+wl.toFixed(1)+'%, indicating mature compost.';
-    } else if (comp >= 72) {
-        name='Late Thermophilic Stage'; color='#4CAF50';
-        desc='Active decomposition winding down. High microbial activity has processed most material. Final curing phase approaching. Weight reduced: '+wl.toFixed(1)+'%.';
-    } else if (comp >= 55) {
-        name='Thermophilic Stage (Active)'; color='#84cc16';
-        desc='Peak microbial activity. Temperature elevated, pathogens being destroyed. <strong>Excellent!</strong> Significant weight loss ('+wl.toFixed(1)+'%) shows active decomposition.';
-    } else if (comp >= 35) {
-        name='Mesophilic Stage (Building)'; color='#f59e0b';
-        desc='Early microbes colonizing organic material. Temperature and gas building toward thermophilic phase. Weight loss: '+wl.toFixed(1)+'%. This is normal for the initial stage.';
-    } else if (comp >= 15) {
-        name='Initial Breakdown'; color='#fb923c';
-        desc='Fresh batch. Microorganisms beginning to establish. Conditions developing for active decomposition. Weight loss: '+wl.toFixed(1)+'%.';
-    } else {
-        name='Dormant / Setup'; color='#94a3b8';
-        desc='Minimal microbial activity. Weight loss: '+wl.toFixed(1)+'%. Bin may need material balance, moisture, or temperature adjustment.';
-    }
-    const stageEl = document.getElementById('compostStage');
-    const descEl  = document.getElementById('compostStageDesc');
-    const inner   = document.querySelector('.stage-card-inner');
-    if (stageEl) { stageEl.textContent=name; stageEl.style.color=color; }
-    if (descEl)  descEl.innerHTML=desc;
-    if (inner)   { inner.style.borderLeftColor=color; inner.style.background=`linear-gradient(135deg,${color}18,${color}08)`; }
-}
-
-// ── Composite score — used ONLY for stage detection ───────────────────────
-function calcComposite() {
-    const wl = liveState.initWeight > 0
-        ? Math.max(0, ((liveState.initWeight - liveState.weight) / liveState.initWeight) * 100)
-        : 0;
-    const wlS = scoreWeightLoss(wl);
-    const tS  = scoreTempProgress(liveState.temp);
-    const hS  = scoreHumidityProgress(liveState.humidity);
-    const gS  = scoreGasProgress(liveState.gas);
-    const phS = scorePH(liveState.ph);
-    const raw = wlS*0.30 + tS*0.25 + hS*0.20 + gS*0.15 + phS*0.10;
-    const comp = Math.min(100, Math.max(0, parseFloat((raw * aiDaysFactor(liveState.aiDays)).toFixed(1))));
-    return { comp, wl };
-}
-
-// Stage only — donut is handled by updateChart() via predict_readiness.php
-function refreshComposite() {
-    updateStage(calcComposite());
-}
-refreshComposite();
-
-// Start the original predict_readiness.php polling for the donut
+// Poll every 10 seconds
 updateChart();
 setInterval(updateChart, 10000);
 
-function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
-function setBar(id,v,max,card){
-    const el=document.getElementById(id); if(!el) return;
-    const pct=max>0?clamp((v/max)*100,0,100):0;
-    el.style.width=pct+'%';
-    if(!card) return;
-    card.classList.remove('ok-glow','warn-glow','crit-glow');
-    if(pct>=85) card.classList.add('ok-glow');
-    else if(pct>=60) card.classList.add('warn-glow');
-}
-function statusGlow(card,value,warnAt,critAt){
-    card.classList.remove('ok-glow','warn-glow','crit-glow');
-    if(value>=critAt) card.classList.add('crit-glow');
-    else if(value>=warnAt) card.classList.add('warn-glow');
-    else card.classList.add('ok-glow');
-}
-
-// ── Firebase live listeners ────────────────────────────────────────────────
+// ── Firebase live listeners (sensors only — no scoring done here) ──────────
 window.setupFirebaseListeners = function() {
-    const db=window.firebaseDatabase;
+    const db = window.firebaseDatabase;
+
+    function statusGlow(card,value,warnAt,critAt){
+        card.classList.remove('ok-glow','warn-glow','crit-glow');
+        if(value>=critAt) card.classList.add('crit-glow');
+        else if(value>=warnAt) card.classList.add('warn-glow');
+        else card.classList.add('ok-glow');
+    }
 
     window.firebaseOnValue(window.firebaseRef(db,'sensors/temperature/latest'),(s)=>{
-        const v=parseFloat(s.val())||0; liveState.temp=v;
+        const v=parseFloat(s.val())||0;
         document.getElementById('tempValue').textContent=v.toFixed(1)+' °C';
         document.getElementById('tempFill').style.width=clamp(v,0,100)+'%';
         statusGlow(document.getElementById('tempCard'),v,60,65);
-        refreshComposite();
     });
     window.firebaseOnValue(window.firebaseRef(db,'sensors/humidity/latest'),(s)=>{
-        const v=parseFloat(s.val())||0; liveState.humidity=v;
+        const v=parseFloat(s.val())||0;
         document.getElementById('humValue').textContent=v.toFixed(1)+' %';
         document.getElementById('humFill').style.width=clamp(v,0,100)+'%';
         statusGlow(document.getElementById('humCard'),v,80,90);
-        refreshComposite();
     });
     window.firebaseOnValue(window.firebaseRef(db,'sensors/gas/latest'),(s)=>{
-        const v=parseFloat(s.val())||0; liveState.gas=v;
+        const v=parseFloat(s.val())||0;
         document.getElementById('gasValue').textContent=v.toFixed(2)+' ppm';
         document.getElementById('gasFill').style.width=clamp(v/10,0,100)+'%';
         statusGlow(document.getElementById('gasCard'),v,600,800);
-        refreshComposite();
     });
     window.firebaseOnValue(window.firebaseRef(db,'sensors/ph/latest'),(s)=>{
-        const v=parseFloat(s.val())||0; liveState.ph=v;
+        const v=parseFloat(s.val())||0;
         document.getElementById('phValue').textContent=v.toFixed(1);
         document.getElementById('phFill').style.width=clamp((v/14)*100,0,100)+'%';
         const c=document.getElementById('phCard');
         c.classList.remove('ok-glow','warn-glow','crit-glow');
         if(v<6.5||v>8.0) c.classList.add('warn-glow'); else c.classList.add('ok-glow');
-        refreshComposite();
     });
     window.firebaseOnValue(window.firebaseRef(db,'sensors/weight/latest'),(s)=>{
-        const v=parseFloat(s.val())||0; liveState.weight=v;
+        const v=parseFloat(s.val())||0;
         document.getElementById('currentWeightDisplay').textContent=v.toFixed(4)+' kg';
-        setBar('weightBar',v,100,document.getElementById('weightCard'));
-        refreshComposite();
-    });
-    window.firebaseOnValue(window.firebaseRef(db,'sensors/weight/initial'),(s)=>{
-        liveState.initWeight=parseFloat(s.val())||0;
-        refreshComposite();
+        const bar=document.getElementById('weightBar');
+        if(bar) bar.style.width=clamp((v/100)*100,0,100)+'%';
     });
 
     document.getElementById('capacityDisplay').textContent='100';
