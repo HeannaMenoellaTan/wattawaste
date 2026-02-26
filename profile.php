@@ -15,8 +15,15 @@ require_once 'firebase_config.php';
     <!-- Firebase Auth and Database -->
     <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-    import { getDatabase, ref, set, onValue } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+    import {
+        getAuth,
+        onAuthStateChanged,
+        signInWithPhoneNumber,
+        RecaptchaVerifier,
+        PhoneAuthProvider,
+        linkWithCredential
+    } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+    import { getDatabase, ref, set, onValue, update } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
     const firebaseConfig = {
         apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
@@ -48,6 +55,11 @@ require_once 'firebase_config.php';
     window.firebaseRef = ref;
     window.firebaseSet = set;
     window.firebaseOnValue = onValue;
+    window.firebaseUpdate = update;
+    window.firebaseSignInWithPhoneNumber = signInWithPhoneNumber;
+    window.firebaseRecaptchaVerifier = RecaptchaVerifier;
+    window.firebasePhoneAuthProvider = PhoneAuthProvider;
+    window.firebaseLinkWithCredential = linkWithCredential;
     </script>
 
     <?php include_once 'notif_bell.php'; ?>
@@ -328,7 +340,6 @@ require_once 'firebase_config.php';
             background: rgba(76, 175, 80, 0.05);
         }
 
-        /* Custom select wrapper for arrow icon */
         .select-wrapper {
             position: relative;
         }
@@ -346,14 +357,12 @@ require_once 'firebase_config.php';
             font-size: 14px;
         }
 
-        /* Two-column grid for smaller fields */
         .form-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 14px;
         }
 
-        /* Address preview box */
         .address-preview {
             background: rgba(76, 175, 80, 0.06);
             border: 1.5px dashed rgba(76, 175, 80, 0.4);
@@ -476,6 +485,28 @@ require_once 'firebase_config.php';
             margin: 0 auto 15px;
             border: 3px solid var(--brand);
             box-shadow: 0 8px 20px rgba(35, 237, 153, 0.3);
+        }
+
+        /* ── OTP Boxes ── */
+        .otp-box {
+            width: 46px; height: 54px;
+            border: 2px solid #e0e0e0; border-radius: 12px;
+            text-align: center; font-size: 22px; font-weight: 700;
+            color: #0f8156; background: white;
+            transition: all 0.2s ease; outline: none;
+            font-family: inherit;
+        }
+        .otp-box:focus {
+            border-color: #23ed99; box-shadow: 0 0 0 3px rgba(35,237,153,0.15);
+        }
+        .otp-box.filled {
+            border-color: #0f8156; background: #f0fff8;
+        }
+        .otp-box.shake {
+            animation: otpShake 0.4s ease;
+        }
+        @keyframes otpShake {
+            0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)}
         }
 
         .alert {
@@ -624,10 +655,12 @@ require_once 'firebase_config.php';
             <p class="modal-subtitle">Complete these steps to verify your account</p>
         </div>
 
+        <!-- 4 steps now -->
         <div class="step-indicator">
             <div class="step active" data-step="1"></div>
             <div class="step" data-step="2"></div>
             <div class="step" data-step="3"></div>
+            <div class="step" data-step="4"></div>
         </div>
 
         <div id="alertContainer"></div>
@@ -641,11 +674,10 @@ require_once 'firebase_config.php';
                 <strong>Kingspoint Homes 1 / Kingspoint Subdivision, Brgy. Bagbag, Quezon City</strong>.
             </p>
 
-            <!-- City -->
             <div class="form-group">
                 <label class="form-label"><i class="fas fa-city"></i> &nbsp;City / Municipality</label>
                 <div class="select-wrapper">
-                    <select id="addrCity" class="form-select-custom" onchange="onCityChange()">
+                    <select id="addrCity" class="form-select-custom">
                         <option value="">— Select City —</option>
                         <option value="Quezon City">Quezon City</option>
                         <option value="Caloocan">Caloocan</option>
@@ -667,50 +699,41 @@ require_once 'firebase_config.php';
                 </div>
             </div>
 
-            <!-- Barangay (populated by JS based on city) -->
             <div class="form-group">
                 <label class="form-label"><i class="fas fa-map-pin"></i> &nbsp;Barangay</label>
                 <div class="select-wrapper">
-                    <select id="addrBarangay" class="form-select-custom" disabled onchange="updatePreview()">
+                    <select id="addrBarangay" class="form-select-custom" disabled>
                         <option value="">— Select City first —</option>
                     </select>
                 </div>
             </div>
 
-            <!-- Subdivision / Landmark -->
             <div class="form-group">
                 <label class="form-label"><i class="fas fa-home"></i> &nbsp;Subdivision / Landmark</label>
                 <input type="text" id="addrSubd" class="form-input"
-                       placeholder="Enter your subdivision or landmark"
-                       oninput="updatePreview()">
+                       placeholder="Enter your subdivision or landmark">
             </div>
 
-            <!-- Street & House number -->
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label"><i class="fas fa-road"></i> &nbsp;Street</label>
                     <input type="text" id="addrStreet" class="form-input"
-                           placeholder="Enter your street name"
-                           oninput="updatePreview()">
+                           placeholder="Enter your street name">
                 </div>
                 <div class="form-group">
                     <label class="form-label"><i class="fas fa-hashtag"></i> &nbsp;House No.</label>
                     <input type="text" id="addrHouse" class="form-input"
-                           placeholder="House or unit no."
-                           oninput="updatePreview()">
+                           placeholder="House or unit no.">
                 </div>
             </div>
 
-            <!-- Zip code -->
             <div class="form-group">
                 <label class="form-label"><i class="fas fa-envelope"></i> &nbsp;ZIP / Postal Code</label>
                 <input type="text" id="addrZip" class="form-input"
                        placeholder="Enter your ZIP code"
-                       maxlength="10"
-                       oninput="updatePreview()">
+                       maxlength="10">
             </div>
 
-            <!-- Live address preview -->
             <div class="form-group">
                 <label class="form-label"><i class="fas fa-eye"></i> &nbsp;Address Preview</label>
                 <div class="address-preview" id="addressPreview">
@@ -767,19 +790,89 @@ require_once 'firebase_config.php';
                 <input type="file" id="imageInput" accept="image/png,image/jpeg,image/jpg"
                        onchange="handleImageUpload(event)">
             </div>
-            <button class="btn-primary" id="completeVerificationBtn" disabled
-                    onclick="completeVerification()">
-                Complete Verification
+            <button class="btn-primary" id="proceedToPhoneBtn" disabled onclick="goToStep(4)">
+                Continue to Phone Verification
             </button>
         </div>
+
+        <!-- ── STEP 4 : Phone number verification ── -->
+        <div id="step4" class="step-content" style="display: none;">
+
+            <!-- Step 4a: Enter phone number -->
+            <div id="phoneStep1">
+                <div style="text-align:center;margin-bottom:24px;">
+                    <div style="font-size:44px;margin-bottom:10px;">📱</div>
+                    <h3 style="color:#0f8156;font-size:18px;font-weight:700;margin-bottom:6px;">Verify Your Phone Number</h3>
+                    <p style="color:#666;font-size:13px;">We'll send a 6-digit SMS code to confirm your number.</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label"><i class="fas fa-phone"></i> &nbsp;Phone Number</label>
+                    <div style="display:flex;gap:8px;align-items:stretch;">
+                        <select id="countryCode" style="padding:12px 8px;border:2px solid #e0e0e0;border-radius:12px;font-size:14px;background:white;cursor:pointer;flex-shrink:0;min-width:105px;">
+                            <option value="+63">🇵🇭 +63</option>
+                            <option value="+1">🇺🇸 +1</option>
+                            <option value="+44">🇬🇧 +44</option>
+                            <option value="+61">🇦🇺 +61</option>
+                            <option value="+65">🇸🇬 +65</option>
+                            <option value="+60">🇲🇾 +60</option>
+                            <option value="+66">🇹🇭 +66</option>
+                            <option value="+62">🇮🇩 +62</option>
+                            <option value="+84">🇻🇳 +84</option>
+                            <option value="+91">🇮🇳 +91</option>
+                        </select>
+                        <input type="tel" id="phoneNumber" placeholder="9212364567"
+                            inputmode="numeric" maxlength="15" class="form-input"
+                            style="flex:1;">
+                    </div>
+                    <small style="color:#888;font-size:12px;margin-top:6px;display:block;">Enter number without leading 0 (e.g. 9212364567)</small>
+                </div>
+
+                <div id="recaptcha-container" style="margin:16px 0;display:flex;justify-content:center;"></div>
+
+                <button class="btn-primary" id="sendOtpBtn" onclick="sendVerificationCode()">
+                    <i class="fas fa-sms"></i> &nbsp;Send Verification Code
+                </button>
+            </div>
+
+            <!-- Step 4b: Enter OTP -->
+            <div id="phoneStep2" style="display:none;">
+                <div style="text-align:center;margin-bottom:24px;">
+                    <div style="font-size:44px;margin-bottom:10px;">🔐</div>
+                    <h3 style="color:#0f8156;font-size:18px;font-weight:700;margin-bottom:6px;">Enter the Code</h3>
+                    <p id="otpSentMsg" style="color:#666;font-size:13px;">We sent a 6-digit code to your number</p>
+                </div>
+
+                <div id="otpBoxes" style="display:flex;gap:8px;justify-content:center;margin-bottom:24px;">
+                    <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                    <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                    <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                    <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                    <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                    <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                </div>
+
+                <button type="button" class="btn-primary" id="verifyOtpBtn" disabled onclick="verifyOtpAndComplete()">
+                    <i class="fas fa-check-circle"></i> &nbsp;Verify & Complete
+                </button>
+
+                <div style="text-align:center;margin-top:16px;">
+                    <span style="color:#888;font-size:13px;">Didn't receive it? </span>
+                    <a id="resendCodeBtn" style="color:#0f8156;font-weight:700;cursor:pointer;font-size:13px;" onclick="resendOtp()">Resend code</a>
+                    <span id="resendTimer" style="color:#888;font-size:13px;display:none;"> in <span id="timerCount">30</span>s</span>
+                </div>
+                <div style="text-align:center;margin-top:10px;">
+                    <a onclick="backToPhoneEntry()" style="color:#aaa;font-size:12px;cursor:pointer;">← Change number</a>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 
 <script>
 /* ══════════════════════════════════════════════════════
    Barangay data keyed by city
-   (Quezon City list is trimmed to the most relevant ones
-    while keeping this file readable)
 ══════════════════════════════════════════════════════ */
 const barangayData = {
     "Quezon City": [
@@ -868,13 +961,15 @@ const barangayData = {
         "San Felipe Neri","Santa Ana","Sto. Rosario-Kanluran","Sto. Rosario-Silangan","Tabacalera"]
 };
 
-/* ── User data state ── */
+/* ── State ── */
 let userData = {
     name:'', facebook:'', google:'', phone:'',
     address:'', bin:'', profilePicture:null, isVerified:false
 };
-let selectedBin  = null;
+let selectedBin   = null;
 let uploadedImage = null;
+let phoneConfirmationResult = null;
+let recaptchaVerifier = null;
 
 /* ════════════════════════════════════════
    Address helpers
@@ -883,7 +978,6 @@ function onCityChange() {
     const city = document.getElementById('addrCity').value;
     const brgySelect = document.getElementById('addrBarangay');
     brgySelect.innerHTML = '<option value="">— Select Barangay —</option>';
-
     if (city && barangayData[city]) {
         barangayData[city].forEach(b => {
             const opt = document.createElement('option');
@@ -900,12 +994,12 @@ function onCityChange() {
 
 function getAddressFields() {
     return {
-        city:    document.getElementById('addrCity').value.trim(),
-        brgy:    document.getElementById('addrBarangay').value.trim(),
-        subd:    document.getElementById('addrSubd').value.trim(),
-        street:  document.getElementById('addrStreet').value.trim(),
-        house:   document.getElementById('addrHouse').value.trim(),
-        zip:     document.getElementById('addrZip').value.trim(),
+        city:   document.getElementById('addrCity').value.trim(),
+        brgy:   document.getElementById('addrBarangay').value.trim(),
+        subd:   document.getElementById('addrSubd').value.trim(),
+        street: document.getElementById('addrStreet').value.trim(),
+        house:  document.getElementById('addrHouse').value.trim(),
+        zip:    document.getElementById('addrZip').value.trim(),
     };
 }
 
@@ -931,33 +1025,22 @@ function updatePreview() {
     }
 }
 
-/* ════════════════════════════════════════
-   Allowed address rules
-   — We normalise both sides to lowercase
-     and strip extra whitespace before
-     comparing so minor capitalisation or
-     spacing differences don't block people.
-════════════════════════════════════════ */
 function normalise(s) {
     return s.toLowerCase()
-            .replace(/[^a-z0-9\s]/g, ' ')  // keep only alphanum + spaces
+            .replace(/[^a-z0-9\s]/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
 }
 
 function isAllowedAddress(f) {
-    // Required fixed values
-    const CITY  = 'quezon city';
-    const BRGY  = 'bagbag';
-    const ZIP   = '1116';
+    const CITY = 'quezon city';
+    const BRGY = 'bagbag';
+    const ZIP  = '1116';
 
     if (normalise(f.city) !== CITY)  return { ok: false, hint: 'City must be Quezon City.' };
     if (normalise(f.brgy) !== BRGY)  return { ok: false, hint: 'Barangay must be Bagbag.' };
     if (f.zip && normalise(f.zip) !== ZIP) return { ok: false, hint: 'ZIP code must be 1116.' };
 
-    // Allowed subdivision / street keyword sets
-    // Address A: Kingspoint Subdivision  |  King Ferdinand Street  |  house 24
-    // Address B: Kingspoint Homes 1      |  King George Street
     const subdA  = ['kingspoint subdivision'];
     const subdB  = ['kingspoint homes 1', 'kingspoint homes'];
     const stA    = ['king ferdinand street', 'king ferdinand'];
@@ -966,25 +1049,17 @@ function isAllowedAddress(f) {
     const normSubd   = normalise(f.subd);
     const normStreet = normalise(f.street);
 
-    const matchA = subdA.some(s => normSubd.includes(s)) &&
-                   stA.some(s   => normStreet.includes(s));
-    const matchB = subdB.some(s => normSubd.includes(s)) &&
-                   stB.some(s   => normStreet.includes(s));
+    const matchA = subdA.some(s => normSubd.includes(s)) && stA.some(s => normStreet.includes(s));
+    const matchB = subdB.some(s => normSubd.includes(s)) && stB.some(s => normStreet.includes(s));
 
     if (!matchA && !matchB) {
-        return {
-            ok: false,
-            hint: 'Subdivision or street does not match a registered Kingspoint address.'
-        };
+        return { ok: false, hint: 'Subdivision or street does not match a registered Kingspoint address.' };
     }
-
     return { ok: true };
 }
 
 function verifyAddress() {
     const f = getAddressFields();
-
-    // Basic completeness check
     if (!f.city)   { showAlert('Please select a city.',       'error'); return; }
     if (!f.brgy)   { showAlert('Please select a barangay.',   'error'); return; }
     if (!f.subd)   { showAlert('Please enter your subdivision or landmark.', 'error'); return; }
@@ -1020,12 +1095,19 @@ function closeVerificationModal() {
 }
 
 function goToStep(step) {
+    // Update step indicators (4 steps total)
     document.querySelectorAll('.step').forEach((s, index) => {
         s.classList.toggle('active', index < step);
     });
     document.getElementById('step1').style.display = step === 1 ? 'block' : 'none';
     document.getElementById('step2').style.display = step === 2 ? 'block' : 'none';
     document.getElementById('step3').style.display = step === 3 ? 'block' : 'none';
+    document.getElementById('step4').style.display = step === 4 ? 'block' : 'none';
+
+    // Init reCAPTCHA when entering step 4
+    if (step === 4) {
+        initRecaptcha();
+    }
 }
 
 function selectBin(binNumber) {
@@ -1077,7 +1159,7 @@ async function handleImageUpload(event) {
                 <div>Image uploaded successfully!</div>
                 <div style="font-size:13px;color:var(--muted);margin-top:5px;">Click to change image</div>
             `;
-            document.getElementById('completeVerificationBtn').disabled = false;
+            document.getElementById('proceedToPhoneBtn').disabled = false;
         } catch (err) {
             showAlert('Failed to process image. Please try another image.', 'error');
         }
@@ -1085,47 +1167,228 @@ async function handleImageUpload(event) {
     reader.readAsDataURL(file);
 }
 
-async function completeVerification() {
-    if (!uploadedImage) { showAlert('Please upload a profile picture', 'error'); return; }
-    const btn = document.getElementById('completeVerificationBtn');
-    btn.disabled = true; btn.textContent = 'Saving...';
-    userData.profilePicture = uploadedImage;
-    userData.isVerified = true;
+/* ════════════════════════════════════════
+   Phone Verification (Step 4)
+════════════════════════════════════════ */
+function initRecaptcha() {
+    if (!recaptchaVerifier) {
+        try {
+            recaptchaVerifier = new window.firebaseRecaptchaVerifier(
+                window.firebaseAuth,
+                'recaptcha-container',
+                {
+                    size: 'normal',
+                    callback: () => console.log('reCAPTCHA verified'),
+                    'expired-callback': () => {
+                        recaptchaVerifier = null;
+                        initRecaptcha();
+                    }
+                }
+            );
+            recaptchaVerifier.render();
+        } catch (e) { console.error('reCAPTCHA init error:', e); }
+    }
+}
+
+async function sendVerificationCode() {
+    const countryCode = document.getElementById('countryCode').value;
+    const rawNumber   = document.getElementById('phoneNumber').value.trim();
+    const localNumber = rawNumber.replace(/\D/g, '').replace(/^0+/, '');
+    const fullNumber  = countryCode + localNumber;
+
+    if (localNumber.length < 7) {
+        showAlert('Please enter a valid phone number (at least 7 digits).', 'error'); return;
+    }
+    if (!recaptchaVerifier) {
+        showAlert('reCAPTCHA not loaded. Please wait a moment and try again.', 'error'); return;
+    }
+
+    const btn = document.getElementById('sendOtpBtn');
+    btn.disabled = true; btn.textContent = 'Sending code...';
+    showAlert('', 'clear');
+
     try {
+        phoneConfirmationResult = await window.firebaseSignInWithPhoneNumber(
+            window.firebaseAuth, fullNumber, recaptchaVerifier
+        );
+        document.getElementById('phoneStep1').style.display = 'none';
+        document.getElementById('phoneStep2').style.display = 'block';
+        document.getElementById('otpSentMsg').textContent = `Code sent to ${fullNumber}`;
+        setupOtpBoxes();
+        document.querySelector('#step4 .otp-box').focus();
+        startResendTimer();
+        showAlert('Code sent! Check your SMS.', 'success');
+    } catch (err) {
+        console.error('sendOtp error:', err.code, err.message);
+        let msg = 'Failed to send code. Please try again.';
+        if (err.code === 'auth/invalid-phone-number')  msg = 'Invalid phone number format.';
+        if (err.code === 'auth/too-many-requests')     msg = 'Too many attempts. Please wait a few minutes.';
+        if (err.code === 'auth/captcha-check-failed')  msg = 'Please complete the reCAPTCHA first.';
+        if (err.code === 'auth/quota-exceeded')        msg = 'SMS quota exceeded. Try again later.';
+        showAlert(msg, 'error');
+        btn.disabled = false; btn.textContent = 'Send Verification Code';
+        try { if (recaptchaVerifier) recaptchaVerifier.clear(); } catch(e) {}
+        recaptchaVerifier = null;
+        initRecaptcha();
+    }
+}
+
+function setupOtpBoxes() {
+    const boxes = document.querySelectorAll('#step4 .otp-box');
+    const verifyBtn = document.getElementById('verifyOtpBtn');
+
+    boxes.forEach((box, i) => {
+        // Clear any previous listeners by cloning
+        const newBox = box.cloneNode(true);
+        box.parentNode.replaceChild(newBox, box);
+    });
+
+    // Re-query after clone
+    const freshBoxes = document.querySelectorAll('#step4 .otp-box');
+    freshBoxes.forEach((box, i) => {
+        box.addEventListener('input', (e) => {
+            const val = e.target.value.replace(/\D/g, '');
+            box.value = val;
+            box.classList.toggle('filled', val !== '');
+            if (val && i < freshBoxes.length - 1) freshBoxes[i + 1].focus();
+            const code = [...freshBoxes].map(b => b.value).join('');
+            verifyBtn.disabled = code.length !== 6;
+            if (code.length === 6) setTimeout(() => verifyBtn.click(), 300);
+        });
+
+        box.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' && !box.value && i > 0) {
+                freshBoxes[i - 1].focus();
+                freshBoxes[i - 1].value = '';
+                freshBoxes[i - 1].classList.remove('filled');
+            }
+        });
+
+        box.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+            freshBoxes.forEach((b, idx) => {
+                b.value = pasted[idx] || '';
+                b.classList.toggle('filled', !!pasted[idx]);
+            });
+            const code = [...freshBoxes].map(b => b.value).join('');
+            verifyBtn.disabled = code.length !== 6;
+            if (code.length === 6) setTimeout(() => verifyBtn.click(), 300);
+            freshBoxes[Math.min(pasted.length, 5)].focus();
+        });
+    });
+}
+
+function startResendTimer() {
+    let seconds = 30;
+    const resendBtn   = document.getElementById('resendCodeBtn');
+    const resendTimer = document.getElementById('resendTimer');
+    const timerCount  = document.getElementById('timerCount');
+    resendBtn.style.display   = 'none';
+    resendTimer.style.display = 'inline';
+    timerCount.textContent    = seconds;
+    const interval = setInterval(() => {
+        seconds--;
+        timerCount.textContent = seconds;
+        if (seconds <= 0) {
+            clearInterval(interval);
+            resendTimer.style.display = 'none';
+            resendBtn.style.display   = 'inline';
+        }
+    }, 1000);
+}
+
+function resendOtp() {
+    document.getElementById('phoneStep2').style.display = 'none';
+    document.getElementById('phoneStep1').style.display = 'block';
+    const btn = document.getElementById('sendOtpBtn');
+    btn.disabled = false; btn.textContent = 'Send Verification Code';
+    if (recaptchaVerifier) { try { recaptchaVerifier.clear(); } catch(e) {} recaptchaVerifier = null; }
+    initRecaptcha();
+    showAlert('', 'clear');
+}
+
+function backToPhoneEntry() {
+    document.getElementById('phoneStep2').style.display = 'none';
+    document.getElementById('phoneStep1').style.display = 'block';
+    const btn = document.getElementById('sendOtpBtn');
+    btn.disabled = false; btn.textContent = 'Send Verification Code';
+    showAlert('', 'clear');
+}
+
+async function verifyOtpAndComplete() {
+    if (!phoneConfirmationResult) { showAlert('Session expired. Please resend the code.', 'error'); return; }
+    if (!uploadedImage)           { showAlert('Profile picture is missing. Please go back to Step 3.', 'error'); return; }
+
+    const boxes   = document.querySelectorAll('#step4 .otp-box');
+    const code    = [...boxes].map(b => b.value).join('');
+    if (code.length !== 6) { showAlert('Please enter the full 6-digit code.', 'error'); return; }
+
+    const verifyBtn = document.getElementById('verifyOtpBtn');
+    verifyBtn.disabled    = true;
+    verifyBtn.textContent = '⏳ Verifying...';
+
+    try {
+        // Confirm OTP — this signs in / links the phone number
+        await phoneConfirmationResult.confirm(code);
+
+        // Now save everything to the database
         const userId = sessionStorage.getItem('userId');
         if (!userId) throw new Error('User ID not found. Please log in again.');
-        if (!userData.address || !userData.bin) throw new Error('Missing required verification data. Please start over.');
+
+        const phoneNumber = document.getElementById('countryCode').value +
+                            document.getElementById('phoneNumber').value.replace(/\D/g, '').replace(/^0+/, '');
+
+        userData.profilePicture = uploadedImage;
+        userData.isVerified     = true;
+        userData.phone          = phoneNumber;
+
         const userRef = window.firebaseRef(window.firebaseDatabase, `users/${userId}`);
         await window.firebaseSet(userRef, {
-            name: userData.name || '',
-            facebook: userData.facebook || '',
-            google: userData.google || '',
-            phone: userData.phone || '',
-            address: userData.address,
-            bin: userData.bin,
+            name:           userData.name           || '',
+            facebook:       userData.facebook       || '',
+            google:         userData.google         || '',
+            phone:          phoneNumber,
+            address:        userData.address,
+            bin:            userData.bin,
             profilePicture: uploadedImage,
-            isVerified: true,
-            verifiedDate: new Date().toISOString()
+            isVerified:     true,
+            verifiedDate:   new Date().toISOString()
         });
-        showAlert('Verification complete! Your account is now fully verified.', 'success');
+
+        showAlert('✅ Verification complete! Your account is now fully verified.', 'success');
         setTimeout(() => {
             closeVerificationModal();
             updateProfileDisplay();
             window.location.reload();
         }, 1500);
-    } catch (error) {
-        let msg = 'Failed to save profile. ';
-        if (error.message.includes('permission')) msg += 'Permission denied.';
-        else msg += error.message || 'Please try again.';
+
+    } catch (err) {
+        console.error('OTP verify error:', err.code, err.message);
+        // Shake boxes on wrong code
+        boxes.forEach(b => {
+            b.classList.add('shake');
+            setTimeout(() => b.classList.remove('shake'), 400);
+            b.value = '';
+            b.classList.remove('filled');
+        });
+        boxes[0].focus();
+        verifyBtn.disabled    = false;
+        verifyBtn.textContent = 'Verify & Complete';
+        let msg = 'Verification failed. Please try again.';
+        if (err.code === 'auth/invalid-verification-code') msg = 'Incorrect code. Please try again.';
+        if (err.code === 'auth/code-expired')              msg = 'Code expired. Please request a new one.';
+        if (err.code === 'auth/credential-already-in-use') msg = 'This phone number is already linked to another account.';
         showAlert(msg, 'error');
-        btn.disabled = false; btn.textContent = 'Complete Verification';
     }
 }
 
+/* ════════════════════════════════════════
+   Reset
+════════════════════════════════════════ */
 function resetVerification() {
-    selectedBin = null; uploadedImage = null;
-    // Reset address fields
-    document.getElementById('addrCity').value   = '';
+    selectedBin = null; uploadedImage = null; phoneConfirmationResult = null;
+    document.getElementById('addrCity').value = '';
     document.getElementById('addrBarangay').innerHTML = '<option value="">— Select City first —</option>';
     document.getElementById('addrBarangay').disabled  = true;
     document.getElementById('addrSubd').value   = '';
@@ -1134,9 +1397,9 @@ function resetVerification() {
     document.getElementById('addrZip').value    = '';
     document.getElementById('addressPreview').innerHTML =
         '<span>Your complete address will appear here as you fill in the fields above.</span>';
-    // Reset other steps
-    document.getElementById('selectBinBtn').disabled = true;
-    document.getElementById('completeVerificationBtn').disabled = true;
+    document.getElementById('selectBinBtn').disabled      = true;
+    document.getElementById('proceedToPhoneBtn').disabled = true;
+    document.getElementById('verifyOtpBtn').disabled      = true;
     document.querySelectorAll('.bin-card').forEach(c => c.classList.remove('selected'));
     const uploadArea = document.getElementById('uploadArea');
     uploadArea.classList.remove('has-image');
@@ -1146,10 +1409,25 @@ function resetVerification() {
         <div style="font-size:13px;color:var(--muted);margin-top:5px;">PNG, JPG or JPEG (Max 2MB)</div>
     `;
     document.getElementById('imageInput').value = '';
+    // Reset phone step
+    document.getElementById('phoneStep1').style.display = 'block';
+    document.getElementById('phoneStep2').style.display = 'none';
+    document.getElementById('phoneNumber').value = '';
+    document.querySelectorAll('#step4 .otp-box').forEach(b => { b.value = ''; b.classList.remove('filled'); });
+    const sendBtn = document.getElementById('sendOtpBtn');
+    sendBtn.disabled = false; sendBtn.textContent = 'Send Verification Code';
+    if (recaptchaVerifier) { try { recaptchaVerifier.clear(); } catch(e) {} recaptchaVerifier = null; }
     document.getElementById('alertContainer').innerHTML = '';
 }
 
+/* ════════════════════════════════════════
+   Alert helper
+════════════════════════════════════════ */
 function showAlert(message, type) {
+    if (type === 'clear' || !message) {
+        document.getElementById('alertContainer').innerHTML = '';
+        return;
+    }
     const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
     const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
     document.getElementById('alertContainer').innerHTML = `
@@ -1164,7 +1442,7 @@ function showAlert(message, type) {
 }
 
 /* ════════════════════════════════════════
-   Profile display (unchanged from original)
+   Profile display
 ════════════════════════════════════════ */
 window.loadUserProfile = function(user) {
     userData.google = user.email || user.phoneNumber || '';
@@ -1192,8 +1470,8 @@ function updateProfileDisplay() {
     }
     document.getElementById('displayFacebook').textContent = userData.facebook || 'Not connected';
     document.getElementById('displayPhone').textContent    = userData.phone    || 'Not set';
-    const badgeEl          = document.getElementById('verificationBadge');
-    const verifiedSection  = document.getElementById('verifiedSection');
+    const badgeEl           = document.getElementById('verificationBadge');
+    const verifiedSection   = document.getElementById('verifiedSection');
     const unverifiedSection = document.getElementById('unverifiedSection');
     if (userData.isVerified) {
         badgeEl.innerHTML = '<div class="verification-badge"><i class="fas fa-check-circle"></i> Account Verified</div>';
@@ -1216,3 +1494,38 @@ document.getElementById('verificationModal').addEventListener('click', function(
 
 </body>
 </html>
+<!-- PATCH: Wire address field events via JS to fix barangay not populating -->
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // City dropdown → populate barangays
+    var cityEl = document.getElementById('addrCity');
+    if (cityEl) {
+        cityEl.addEventListener('change', function () {
+            var city = this.value;
+            var brgySelect = document.getElementById('addrBarangay');
+            brgySelect.innerHTML = '<option value="">— Select Barangay —</option>';
+            if (city && barangayData[city]) {
+                barangayData[city].forEach(function(b) {
+                    var opt = document.createElement('option');
+                    opt.value = b;
+                    opt.textContent = b;
+                    brgySelect.appendChild(opt);
+                });
+                brgySelect.disabled = false;
+            } else {
+                brgySelect.innerHTML = '<option value="">— Select City first —</option>';
+                brgySelect.disabled = true;
+            }
+            updatePreview();
+        });
+    }
+
+    // All other address fields → live preview
+    ['addrBarangay', 'addrSubd', 'addrStreet', 'addrHouse', 'addrZip'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) {
+            el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', updatePreview);
+        }
+    });
+});
+</script>

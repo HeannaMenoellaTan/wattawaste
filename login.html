@@ -35,19 +35,6 @@
         }
         .logo p { color: #666; font-size: 14px; margin-top: 8px; }
 
-        .method-tabs { display: flex; gap: 10px; margin-bottom: 30px; }
-        .tab-btn {
-            flex: 1; padding: 12px; border: 2px solid #e0e0e0; background: white;
-            border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600;
-            color: #666; transition: all 0.3s ease;
-        }
-        .tab-btn:hover { border-color: #23ed99ff; color: #0f8156ff; }
-        .tab-btn.active {
-            background: linear-gradient(135deg, #23ed99ff, #0f8156ff);
-            color: white; border-color: transparent;
-            box-shadow: 0 4px 12px rgba(35, 237, 153, 0.4);
-        }
-
         .input-group { margin-bottom: 20px; }
         .input-group label { display: block; margin-bottom: 8px; color: #333; font-weight: 600; font-size: 14px; }
         .input-group input {
@@ -102,27 +89,6 @@
             background: #e8f5e9; color: #2e7d32; padding: 12px; border-radius: 8px;
             margin-bottom: 20px; font-size: 14px; display: none;
         }
-        .hidden { display: none; }
-
-        .otp-box {
-            width: 46px; height: 54px;
-            border: 2px solid #e0e0e0; border-radius: 12px;
-            text-align: center; font-size: 22px; font-weight: 700;
-            color: #0f8156; background: white;
-            transition: all 0.2s ease; outline: none;
-        }
-        .otp-box:focus {
-            border-color: #23ed99; box-shadow: 0 0 0 3px rgba(35,237,153,0.15);
-        }
-        .otp-box.filled {
-            border-color: #0f8156; background: #f0fff8;
-        }
-        .otp-box.shake {
-            animation: otpShake 0.4s ease;
-        }
-        @keyframes otpShake {
-            0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)}
-        }
 
         @media (max-width: 480px) {
             .login-container { padding: 40px 30px; }
@@ -140,83 +106,19 @@
         <div class="error-message" id="errorMessage"></div>
         <div class="success-message" id="successMessage"></div>
 
-        <div class="method-tabs">
-            <button class="tab-btn active" id="emailTab">Email</button>
-            <button class="tab-btn" id="phoneTab">Phone</button>
-        </div>
-
         <form id="loginForm">
-            <div id="emailForm">
-                <div class="input-group">
-                    <label for="email">Email Address</label>
-                    <input type="email" id="email" placeholder="your.email@gmail.com" required>
-                </div>
-                <div class="input-group">
-                    <label for="emailPassword">Password</label>
-                    <input type="password" id="emailPassword" placeholder="Enter your password" required>
-                </div>
-                <div class="forgot-password">
-                    <a id="forgotPasswordLink">Forgot Password?</a>
-                </div>
-                <button type="submit" class="login-btn" id="emailLoginBtn">Login with Email</button>
+            <div class="input-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" placeholder="your.email@gmail.com" required>
             </div>
-
-            <div id="phoneForm" class="hidden">
-
-                <!-- Step 1: Phone number entry -->
-                <div id="phoneStep1">
-                    <div class="input-group">
-                        <label>Phone Number</label>
-                        <div style="display:flex;gap:8px;align-items:stretch;">
-                            <select id="countryCode" style="padding:12px 8px;border:2px solid #e0e0e0;border-radius:12px;font-size:14px;background:white;cursor:pointer;flex-shrink:0;min-width:95px;">
-                                <option value="+63">🇵🇭 +63</option>
-                                <option value="+1">🇺🇸 +1</option>
-                                <option value="+44">🇬🇧 +44</option>
-                                <option value="+61">🇦🇺 +61</option>
-                                <option value="+65">🇸🇬 +65</option>
-                                <option value="+60">🇲🇾 +60</option>
-                                <option value="+66">🇹🇭 +66</option>
-                                <option value="+62">🇮🇩 +62</option>
-                                <option value="+84">🇻🇳 +84</option>
-                                <option value="+91">🇮🇳 +91</option>
-                            </select>
-                            <input type="tel" id="phone" placeholder="9212364567"
-                                inputmode="numeric" maxlength="15"
-                                style="flex:1;padding:14px 16px;border:2px solid #e0e0e0;border-radius:12px;font-size:15px;">
-                        </div>
-                        <small style="color:#888;font-size:12px;margin-top:6px;display:block;">Enter number without leading 0 (e.g. 9212364567)</small>
-                    </div>
-                    <div id="recaptcha-container" style="margin:16px 0;display:flex;justify-content:center;"></div>
-                    <button type="submit" class="login-btn" id="phoneLoginBtn">Send Verification Code</button>
-                </div>
-
-                <!-- Step 2: OTP entry -->
-                <div id="phoneStep2" style="display:none;">
-                    <div style="text-align:center;margin-bottom:24px;">
-                        <div style="font-size:44px;margin-bottom:10px;">📱</div>
-                        <h3 style="color:#0f8156;font-size:18px;font-weight:700;margin-bottom:6px;">Check your phone</h3>
-                        <p id="otpSentMsg" style="color:#666;font-size:13px;">We sent a 6-digit code to your number</p>
-                    </div>
-                    <div id="otpBoxes" style="display:flex;gap:8px;justify-content:center;margin-bottom:24px;">
-                        <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
-                        <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
-                        <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
-                        <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
-                        <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
-                        <input class="otp-box" type="text" maxlength="1" inputmode="numeric" pattern="[0-9]">
-                    </div>
-                    <button type="button" class="login-btn" id="verifyCodeBtn" disabled>Verify & Login</button>
-                    <div style="text-align:center;margin-top:16px;">
-                        <span style="color:#888;font-size:13px;">Didn't receive it? </span>
-                        <a id="resendCodeBtn" style="color:#0f8156;font-weight:700;cursor:pointer;font-size:13px;">Resend code</a>
-                        <span id="resendTimer" style="color:#888;font-size:13px;display:none;"> in <span id="timerCount">30</span>s</span>
-                    </div>
-                    <div style="text-align:center;margin-top:10px;">
-                        <a id="changeNumberBtn" style="color:#aaa;font-size:12px;cursor:pointer;">← Change number</a>
-                    </div>
-                </div>
-
+            <div class="input-group">
+                <label for="emailPassword">Password</label>
+                <input type="password" id="emailPassword" placeholder="Enter your password" required>
             </div>
+            <div class="forgot-password">
+                <a id="forgotPasswordLink">Forgot Password?</a>
+            </div>
+            <button type="submit" class="login-btn" id="emailLoginBtn">Login with Email</button>
         </form>
 
         <div class="divider"><span>OR</span></div>
@@ -247,8 +149,6 @@
             getAuth,
             getRedirectResult,
             signInWithEmailAndPassword,
-            signInWithPhoneNumber,
-            RecaptchaVerifier,
             signInWithPopup,
             signInWithRedirect,
             GoogleAuthProvider,
@@ -279,10 +179,6 @@
         ];
 
         // ── DOM ────────────────────────────────────────────────────────────────────
-        const emailTab           = document.getElementById('emailTab');
-        const phoneTab           = document.getElementById('phoneTab');
-        const emailFormDiv       = document.getElementById('emailForm');
-        const phoneFormDiv       = document.getElementById('phoneForm');
         const loginForm          = document.getElementById('loginForm');
         const errorMessage       = document.getElementById('errorMessage');
         const successMessage     = document.getElementById('successMessage');
@@ -290,10 +186,6 @@
         const facebookLoginBtn   = document.getElementById('facebookLoginBtn');
         const forgotPasswordLink = document.getElementById('forgotPasswordLink');
 
-        let recaptchaVerifier;
-        let confirmationResult;
-        // ✅ This flag prevents onAuthStateChanged from auto-redirecting
-        // when the page first loads (user already logged in scenario)
         let isLoggingIn = false;
 
         // ── Helpers ────────────────────────────────────────────────────────────────
@@ -331,8 +223,6 @@
                 'auth/popup-closed-by-user': 'Sign-in was cancelled.',
                 'auth/cancelled-popup-request': 'Sign-in was cancelled.',
                 'auth/popup-blocked': 'Popup was blocked by your browser.',
-                'auth/invalid-phone-number': 'Invalid phone number format.',
-                'auth/missing-phone-number': 'Please enter a phone number.',
                 'auth/account-exists-with-different-credential': 'An account already exists with this email using a different sign-in method.',
                 'auth/operation-not-allowed': 'This sign-in method is not enabled.',
                 'auth/unauthorized-domain': 'This domain is not authorized. Contact support.'
@@ -348,12 +238,11 @@
                 providerId = user.providerData[0].providerId;
                 if (providerId === 'google.com')   provider = 'google';
                 if (providerId === 'facebook.com') provider = 'facebook';
-                if (providerId === 'phone')        provider = 'phone';
             }
             const userRef = ref(database, 'users/' + user.uid);
             const userData = {
-                name: user.displayName || user.email || user.phoneNumber || 'User',
-                Username: user.displayName || user.email || user.phoneNumber || 'User',
+                name: user.displayName || user.email || 'User',
+                Username: user.displayName || user.email || 'User',
                 email: user.email || 'N/A',
                 Email: user.email || 'N/A',
                 role: 'User', Role: 'User',
@@ -384,12 +273,10 @@
             } catch (e) { console.error('DB sync error:', e); }
         }
 
-        // ── STEP 1: Handle redirect result (popup-blocked fallback) ─────────────
-        // If popup was blocked and we fell back to redirect, catch the result here.
+        // ── Handle redirect result (popup-blocked fallback) ─────────────────────
         try {
             const result = await getRedirectResult(auth);
             if (result?.user) {
-                console.log('✅ getRedirectResult got user:', result.user.email);
                 isLoggingIn = true;
                 await syncUserToDatabase(result.user);
                 sessionStorage.setItem('userEmail', result.user.email || '');
@@ -405,185 +292,18 @@
             }
         }
 
-        // ── STEP 2: onAuthStateChanged — only used for already-logged-in users ─────
-        // This fires when Firebase detects a persisted session (e.g. user refreshes
-        // the login page while already logged in). We redirect them to index.php.
-        // The isLoggingIn flag prevents this from double-firing with step 1.
+        // ── onAuthStateChanged — redirect already-logged-in users ─────────────────
         onAuthStateChanged(auth, (user) => {
-            if (isLoggingIn) return; // already being handled above
+            if (isLoggingIn) return;
             if (user && !user.isAnonymous) {
-                // User is already logged in — skip the login page
-                console.log('User already logged in, redirecting to index...');
                 redirectNow(user.email);
             }
         });
 
-        // ── Tab Switching ──────────────────────────────────────────────────────────
-        emailTab.addEventListener('click', () => {
-            emailTab.classList.add('active'); phoneTab.classList.remove('active');
-            emailFormDiv.classList.remove('hidden'); phoneFormDiv.classList.add('hidden');
-            hideMessages();
-        });
-        phoneTab.addEventListener('click', () => {
-            phoneTab.classList.add('active'); emailTab.classList.remove('active');
-            phoneFormDiv.classList.remove('hidden'); emailFormDiv.classList.add('hidden');
-            hideMessages(); initRecaptcha();
-        });
-
-        // ── reCAPTCHA (invisible — no checkbox needed) ────────────────────────────
-        function initRecaptcha() {
-            if (!recaptchaVerifier) {
-                try {
-                    recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-                        size: 'normal',
-                        callback: () => console.log('reCAPTCHA verified'),
-                        'expired-callback': () => {
-                            recaptchaVerifier = null;
-                            initRecaptcha();
-                        }
-                    });
-                    recaptchaVerifier.render();
-                } catch (e) { console.error('reCAPTCHA init error:', e); }
-            }
-        }
-
-        // ── OTP Box Logic ──────────────────────────────────────────────────────────
-        function setupOtpBoxes() {
-            const boxes = document.querySelectorAll('.otp-box');
-            const verifyBtn = document.getElementById('verifyCodeBtn');
-
-            boxes.forEach((box, i) => {
-                box.addEventListener('input', (e) => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    box.value = val;
-                    box.classList.toggle('filled', val !== '');
-
-                    // Auto-advance to next box
-                    if (val && i < boxes.length - 1) boxes[i + 1].focus();
-
-                    // Enable verify button when all 6 filled
-                    const code = [...boxes].map(b => b.value).join('');
-                    verifyBtn.disabled = code.length !== 6;
-
-                    // Auto-submit when complete
-                    if (code.length === 6) {
-                        setTimeout(() => verifyBtn.click(), 300);
-                    }
-                });
-
-                box.addEventListener('keydown', (e) => {
-                    if (e.key === 'Backspace' && !box.value && i > 0) {
-                        boxes[i - 1].focus();
-                        boxes[i - 1].value = '';
-                        boxes[i - 1].classList.remove('filled');
-                    }
-                });
-
-                // Handle paste — fill all boxes from clipboard
-                box.addEventListener('paste', (e) => {
-                    e.preventDefault();
-                    const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
-                    [...boxes].forEach((b, idx) => {
-                        b.value = pasted[idx] || '';
-                        b.classList.toggle('filled', !!pasted[idx]);
-                    });
-                    const code = [...boxes].map(b => b.value).join('');
-                    verifyBtn.disabled = code.length !== 6;
-                    if (code.length === 6) setTimeout(() => verifyBtn.click(), 300);
-                    boxes[Math.min(pasted.length, 5)].focus();
-                });
-            });
-        }
-
-        // ── Resend timer ───────────────────────────────────────────────────────────
-        function startResendTimer() {
-            let seconds = 30;
-            const resendBtn   = document.getElementById('resendCodeBtn');
-            const resendTimer = document.getElementById('resendTimer');
-            const timerCount  = document.getElementById('timerCount');
-            resendBtn.style.display   = 'none';
-            resendTimer.style.display = 'inline';
-            timerCount.textContent    = seconds;
-            const interval = setInterval(() => {
-                seconds--;
-                timerCount.textContent = seconds;
-                if (seconds <= 0) {
-                    clearInterval(interval);
-                    resendTimer.style.display = 'none';
-                    resendBtn.style.display   = 'inline';
-                }
-            }, 1000);
-        }
-
-        // ── Send OTP ───────────────────────────────────────────────────────────────
-        async function sendOtp() {
-            const countryCode = document.getElementById('countryCode').value;
-            const rawNumber   = document.getElementById('phone').value.trim();
-            const localNumber = rawNumber.replace(/\D/g, '').replace(/^0+/, '');
-            const fullNumber  = countryCode + localNumber;
-
-            // Validate number
-            if (localNumber.length < 7) {
-                showError('Please enter a valid phone number (at least 7 digits).');
-                return;
-            }
-
-            // Validate reCAPTCHA was completed
-            if (!recaptchaVerifier) {
-                showError('reCAPTCHA not loaded. Please refresh the page.');
-                return;
-            }
-
-            const phoneLoginBtn = document.getElementById('phoneLoginBtn');
-            phoneLoginBtn.disabled    = true;
-            phoneLoginBtn.textContent = 'Sending code...';
-            hideMessages();
-
-            try {
-                console.log('Sending OTP to:', fullNumber);
-                confirmationResult = await signInWithPhoneNumber(auth, fullNumber, recaptchaVerifier);
-                console.log('OTP sent successfully');
-
-                // Switch to OTP step
-                document.getElementById('phoneStep1').style.display = 'none';
-                document.getElementById('phoneStep2').style.display = 'block';
-                document.getElementById('otpSentMsg').textContent   = `Code sent to ${fullNumber}`;
-                setupOtpBoxes();
-                document.querySelector('.otp-box').focus();
-                startResendTimer();
-                showSuccess('Code sent! Check your SMS.');
-
-            } catch (err) {
-                console.error('sendOtp error:', err.code, err.message);
-
-                // Show a user-friendly message
-                let msg = 'Failed to send code. Please try again.';
-                if (err.code === 'auth/invalid-phone-number')   msg = 'Invalid phone number. Check the format and try again.';
-                if (err.code === 'auth/too-many-requests')      msg = 'Too many attempts. Please wait a few minutes.';
-                if (err.code === 'auth/captcha-check-failed')   msg = 'Please complete the reCAPTCHA first.';
-                if (err.code === 'auth/missing-phone-number')   msg = 'Please enter a phone number.';
-                if (err.code === 'auth/quota-exceeded')         msg = 'SMS quota exceeded. Try again later.';
-
-                showError(msg);
-                phoneLoginBtn.disabled    = false;
-                phoneLoginBtn.textContent = 'Send Verification Code';
-
-                // Always reset reCAPTCHA after error
-                try {
-                    if (recaptchaVerifier) { recaptchaVerifier.clear(); }
-                } catch(e) {}
-                recaptchaVerifier = null;
-                initRecaptcha();
-            }
-        }
-
-        // ── Email / Phone Form Submit ──────────────────────────────────────────────
+        // ── Email Login ────────────────────────────────────────────────────────────
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             hideMessages();
-            if (!phoneFormDiv.classList.contains('hidden')) { await sendOtp(); return; }
-
-            // Email login
             const emailLoginBtn = document.getElementById('emailLoginBtn');
             const email    = document.getElementById('email').value;
             const password = document.getElementById('emailPassword').value;
@@ -603,57 +323,7 @@
             }
         });
 
-        // ── Verify OTP ─────────────────────────────────────────────────────────────
-        document.getElementById('verifyCodeBtn').addEventListener('click', async () => {
-            hideMessages();
-            const verifyBtn = document.getElementById('verifyCodeBtn');
-            const boxes     = document.querySelectorAll('.otp-box');
-            const code      = [...boxes].map(b => b.value).join('');
-
-            if (code.length !== 6) { showError('Please enter the full 6-digit code.'); return; }
-
-            verifyBtn.disabled    = true;
-            verifyBtn.textContent = '⏳ Verifying...';
-
-            try {
-                isLoggingIn = true;
-                const { user } = await confirmationResult.confirm(code);
-                await syncUserToDatabase(user);
-                sessionStorage.setItem('userPhone', user.phoneNumber);
-                sessionStorage.setItem('userId',    user.uid);
-                showSuccess('✅ Phone verified! Logging in...');
-                setTimeout(() => window.location.replace('index.php'), 1000);
-            } catch (err) {
-                isLoggingIn = false;
-                // Shake all boxes on error
-                boxes.forEach(b => { b.classList.add('shake'); setTimeout(() => b.classList.remove('shake'), 400); b.value = ''; b.classList.remove('filled'); });
-                boxes[0].focus();
-                verifyBtn.disabled    = false;
-                verifyBtn.textContent = 'Verify & Login';
-                showError('Incorrect code. Please try again.');
-            }
-        });
-
-        // ── Resend & Change Number ─────────────────────────────────────────────────
-        document.getElementById('resendCodeBtn').addEventListener('click', async () => {
-            document.getElementById('phoneStep2').style.display = 'none';
-            document.getElementById('phoneStep1').style.display = 'block';
-            document.getElementById('phoneLoginBtn').disabled    = false;
-            document.getElementById('phoneLoginBtn').textContent = 'Send Verification Code';
-            if (recaptchaVerifier) { recaptchaVerifier.clear(); recaptchaVerifier = null; }
-            initRecaptcha();
-            hideMessages();
-        });
-
-        document.getElementById('changeNumberBtn').addEventListener('click', () => {
-            document.getElementById('phoneStep2').style.display = 'none';
-            document.getElementById('phoneStep1').style.display = 'block';
-            document.getElementById('phoneLoginBtn').disabled    = false;
-            document.getElementById('phoneLoginBtn').textContent = 'Send Verification Code';
-            hideMessages();
-        });
-
-        // ── Google Login (Popup) ───────────────────────────────────────────────────
+        // ── Google Login ───────────────────────────────────────────────────────────
         googleLoginBtn.addEventListener('click', async () => {
             hideMessages();
             googleLoginBtn.disabled = true; googleLoginBtn.textContent = 'Signing in...';
@@ -680,15 +350,12 @@
         });
 
         // ── Facebook Login ─────────────────────────────────────────────────────────
-        // Try popup first (works on localhost). If popup is blocked (InfinityFreeApp),
-        // fall back to redirect — auth_callback.php handles the redirect result.
         facebookLoginBtn.addEventListener('click', async () => {
             hideMessages();
             facebookLoginBtn.disabled = true;
             facebookLoginBtn.textContent = 'Signing in...';
             const provider = new FacebookAuthProvider();
             try {
-                // Try popup first
                 isLoggingIn = true;
                 const { user } = await signInWithPopup(auth, provider);
                 await syncUserToDatabase(user);
@@ -699,7 +366,6 @@
                 setTimeout(() => redirectNow(user.email), 1000);
             } catch (err) {
                 if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
-                    // Popup blocked — fall back to redirect
                     isLoggingIn = false;
                     facebookLoginBtn.textContent = 'Redirecting...';
                     try {

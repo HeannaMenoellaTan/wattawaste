@@ -1,11 +1,11 @@
 <?php
 /**
  * index.php — Dashboard
- * 
- * KEY CHANGE: All readiness/stage logic removed from this file.
- * predict_readiness.php is the SINGLE SOURCE OF TRUTH.
- * This file only fetches current sensor values for the initial render.
- * JavaScript polls predict_readiness.php every 10s for live updates.
+ * FIXES:
+ * 1. Auth timing bug — mixer permissions wait for Firebase auth to resolve
+ * 2. Mixer count moved to Firebase (not localStorage) — cross-device consistent
+ * 3. Mixer locked until sensor data is stabilized (temp, humidity, gas, ph all valid)
+ * 4. Stage/readiness driven entirely by predict_readiness.php
  */
 require_once 'firebase_config.php';
 $database = getDatabase();
@@ -32,25 +32,26 @@ include 'sideabr.php';
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script type="module">
-import { initializeApp }               from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-import { getAuth, onAuthStateChanged }  from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-import { getDatabase, ref, set, onValue } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+import { initializeApp }                        from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+import { getAuth, onAuthStateChanged }           from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import { getDatabase, ref, set, get, onValue }  from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
 const firebaseConfig = {
-    apiKey: "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
-    authDomain: "wattawaste-d3503.firebaseapp.com",
-    databaseURL: "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "wattawaste-d3503",
-    storageBucket: "wattawaste-d3503.firebasestorage.app",
+    apiKey:            "AIzaSyAu9hOwjiuAl9PCh50HefMGZU9XDosu68I",
+    authDomain:        "wattawaste-d3503.firebaseapp.com",
+    databaseURL:       "https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:         "wattawaste-d3503",
+    storageBucket:     "wattawaste-d3503.firebasestorage.app",
     messagingSenderId: "842761118644",
-    appId: "1:842761118644:web:ddef65fd892486f67f88e1",
-    measurementId: "G-33Z8K3NBY1"
+    appId:             "1:842761118644:web:ddef65fd892486f67f88e1",
+    measurementId:     "G-33Z8K3NBY1"
 };
 
 const app      = initializeApp(firebaseConfig);
 const auth     = getAuth(app);
 const database = getDatabase(app);
 
+// ── Auth redirect guard ────────────────────────────────────────────────────
 const redirectTime    = localStorage.getItem('fbRedirectTime');
 const redirectAge     = redirectTime ? Date.now() - parseInt(redirectTime) : Infinity;
 const comingFromLogin = redirectAge < 30000;
@@ -64,104 +65,227 @@ const authTimeout = setTimeout(() => {
     }
 }, WAIT_TIME);
 
-onAuthStateChanged(auth, (user) => {
+// ── Sensor stability check ─────────────────────────────────────────────────
+// Returns true only when all live sensor readings are within valid/active ranges.
+// This prevents the user from running the mixer on stale or default boot values.
+function sensorsAreStable() {
+    const temp = parseFloat(document.getElementById('tempValue')?.textContent) || 0;
+    const hum  = parseFloat(document.getElementById('humValue')?.textContent)  || 0;
+    const gas  = parseFloat(document.getElementById('gasValue')?.textContent)  || 0;
+    const ph   = parseFloat(document.getElementById('phValue')?.textContent)   || 0;
+
+    const tempOk = temp > 5   && temp < 80;   // plausible compost temp range
+    const humOk  = hum  > 5   && hum  < 100;  // sensor connected & reading
+    const gasOk  = gas  >= 0;                  // gas can be 0 but must be present
+    const phOk   = ph   >= 4   && ph   <= 9;   // constrained by firmware already
+
+    return tempOk && humOk && gasOk && phOk;
+}
+
+onAuthStateChanged(auth, async (user) => {
     authResolved = true;
     clearTimeout(authTimeout);
+
     if (!user) {
         localStorage.removeItem('fbRedirectTime');
         window.location.href = 'login.html';
-    } else {
-        localStorage.removeItem('fbRedirectTime');
-        sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
-        sessionStorage.setItem('userId', user.uid);
-
-        const userRef = ref(database, `users/${user.uid}`);
-        onValue(userRef, (snapshot) => {
-            const userData   = snapshot.val();
-            const isVerified = userData && userData.isVerified === true;
-            sessionStorage.setItem('isAuthorizedForMixer', isVerified);
-            const mc = document.getElementById('mixerControls');
-            const um = document.getElementById('unauthorizedMessage');
-            if (!isVerified) {
-                if (mc) mc.style.display = 'none';
-                if (um) {
-                    um.style.display = 'block';
-                    um.innerHTML = `<i class="fas fa-lock me-2"></i>Your account is not verified. Please complete the <a href="profile.php" style="color:#E65100;text-decoration:underline;font-weight:700;">profile verification</a> to access mixer controls.`;
-                }
-            } else {
-                if (mc) mc.style.display = 'block';
-                if (um) um.style.display = 'none';
-            }
-        });
-
-        window.setupFirebaseListeners();
-        window.initializeMixerControls();
+        return;
     }
+
+    localStorage.removeItem('fbRedirectTime');
+    sessionStorage.setItem('userEmail', user.email || user.phoneNumber || '');
+    sessionStorage.setItem('userId', user.uid);
+
+    // ── Check isVerified ──────────────────────────────────────────────────
+    const userRef = ref(database, `users/${user.uid}`);
+    onValue(userRef, (snapshot) => {
+        const userData   = snapshot.val();
+        const isVerified = userData && userData.isVerified === true;
+
+        // Store as explicit string 'true'/'false' — never a boolean
+        sessionStorage.setItem('isAuthorizedForMixer', isVerified ? 'true' : 'false');
+        sessionStorage.setItem('authResolved', 'true'); // <-- flag that auth is done
+
+        const mc = document.getElementById('mixerControls');
+        const um = document.getElementById('unauthorizedMessage');
+        if (!isVerified) {
+            if (mc) mc.style.display = 'none';
+            if (um) {
+                um.style.display = 'block';
+                um.innerHTML = `<i class="fas fa-lock me-2"></i>Your account is not verified. Please complete the <a href="profile.php" style="color:#E65100;text-decoration:underline;font-weight:700;">profile verification</a> to access mixer controls.`;
+            }
+        } else {
+            if (mc) mc.style.display = 'block';
+            if (um) um.style.display = 'none';
+        }
+    });
+
+    // ── Start everything after auth ───────────────────────────────────────
+    window.setupFirebaseListeners();
+    window.initializeMixerControls(user.uid);
 });
 
 window.firebaseAuth     = auth;
 window.firebaseDatabase = database;
 window.firebaseRef      = ref;
 window.firebaseSet      = set;
+window.firebaseGet      = get;
 window.firebaseOnValue  = onValue;
 
-window.initializeMixerControls = function() {
+// =============================================================================
+// MIXER CONTROLS
+// FIX 1: Auth timing — we wait for sessionStorage 'authResolved' before allowing
+//         any toggle action, preventing false "Access Denied" on fast clicks.
+// FIX 2: Daily count stored in Firebase under users/{uid}/mixerUsage/{date}
+//         so it is consistent across all devices and browsers.
+// FIX 3: Mixer is locked (disabled state) until sensorsAreStable() returns true.
+//         A status message explains why it is locked.
+// =============================================================================
+window.initializeMixerControls = function(uid) {
     const toggle     = document.getElementById('mixerToggle');
     const knob       = document.getElementById('mixerKnob');
     const mixerAlert = document.getElementById('mixerAlert');
     const mixerText  = document.getElementById('mixerText');
+    const mixerLimit = document.getElementById('mixerLimitInfo');
     if (!toggle) return;
 
     const motorRef       = window.firebaseRef(window.firebaseDatabase, 'controls/motor/command');
     const motorStatusRef = window.firebaseRef(window.firebaseDatabase, 'controls/motor/status');
 
+    // Today's date key e.g. "2026-02-26"
+    function todayKey() {
+        return new Date().toISOString().slice(0, 10);
+    }
+
+    function mixerUsageRef() {
+        return window.firebaseRef(window.firebaseDatabase, `users/${uid}/mixerUsage/${todayKey()}`);
+    }
+
     function showMixerAlert(msg, type = 'success') {
+        if (!mixerAlert) return;
         mixerAlert.style.display = 'block';
-        mixerAlert.className = 'mixer-alert ' + type;
-        mixerAlert.textContent = msg;
-        setTimeout(() => mixerAlert.style.display = 'none', 4500);
+        mixerAlert.className     = 'mixer-alert ' + type;
+        mixerAlert.textContent   = msg;
+        setTimeout(() => { mixerAlert.style.display = 'none'; }, 4500);
     }
 
-    const today   = new Date().toLocaleDateString();
-    let mixerData = JSON.parse(localStorage.getItem('mixerData')) || { date: today, count: 0, on: false };
-    if (mixerData.date !== today) { mixerData = { date: today, count: 0, on: false }; localStorage.setItem('mixerData', JSON.stringify(mixerData)); }
-
-    function applyMixerUI() {
-        if (mixerData.on) { knob.style.left='36px'; toggle.style.background='#4caf50'; mixerText.textContent='Mixer is ON'; }
-        else              { knob.style.left='4px';  toggle.style.background='#cfd8cf'; mixerText.textContent='Mixer is OFF'; }
-    }
-    applyMixerUI();
-
-    window.firebaseOnValue(motorStatusRef, (snapshot) => {
-        const status = snapshot.val();
-        if (status === 'running') { mixerData.on = true;  applyMixerUI(); }
-        else if (status === 'stopped') { mixerData.on = false; applyMixerUI(); }
-    });
-    window.firebaseOnValue(motorRef, (snapshot) => {
-        if (snapshot.val() === false && mixerData.on) { mixerData.on = false; applyMixerUI(); }
-    });
-
-    toggle.addEventListener('click', async () => {
-        if (sessionStorage.getItem('isAuthorizedForMixer') !== 'true') {
-            showMixerAlert('🔒 Access Denied: Please verify your profile to control the mixer.', 'error'); return;
+    // ── Apply toggle UI from a boolean ───────────────────────────────────
+    function applyMixerUI(isOn, usageCount) {
+        if (!toggle || !knob || !mixerText) return;
+        if (isOn) {
+            knob.style.left         = '36px';
+            toggle.style.background = '#4caf50';
+            mixerText.textContent   = 'Mixer is ON';
+        } else {
+            knob.style.left         = '4px';
+            toggle.style.background = '#cfd8cf';
+            mixerText.textContent   = 'Mixer is OFF';
         }
-        if (!mixerData.on) {
-            if (mixerData.count >= 2) { showMixerAlert('⚠️ You can only turn the mixer ON twice per day.', 'warning'); return; }
+        const count = typeof usageCount === 'number' ? usageCount : 0;
+        if (mixerLimit) {
+            mixerLimit.textContent = `Used today: ${count}/2`;
+            mixerLimit.style.color = count >= 2 ? '#ef4444' : '#555';
+        }
+    }
+
+    // ── Lock / unlock toggle visually based on sensor stability ──────────
+    function updateSensorLock() {
+        const stable    = sensorsAreStable();
+        const lockBadge = document.getElementById('sensorLockBadge');
+        if (lockBadge) {
+            if (!stable) {
+                lockBadge.style.display = 'block';
+                lockBadge.textContent   = '⚠️ Waiting for sensor readings to stabilize before mixer can be used...';
+            } else {
+                lockBadge.style.display = 'none';
+            }
+        }
+        // Visually dim the toggle when locked
+        toggle.style.opacity      = stable ? '1'        : '0.45';
+        toggle.style.cursor       = stable ? 'pointer'  : 'not-allowed';
+        toggle.style.pointerEvents = stable ? 'auto'    : 'none';
+    }
+
+    // ── Listen to motor status from Firebase (handles ESP32 auto-stop) ───
+    window.firebaseOnValue(motorStatusRef, async (snapshot) => {
+        const status     = snapshot.val();
+        const usageSnap  = await window.firebaseGet(mixerUsageRef());
+        const usageCount = usageSnap.val() || 0;
+        applyMixerUI(status === 'running', usageCount);
+    });
+
+    window.firebaseOnValue(motorRef, async (snapshot) => {
+        if (snapshot.val() === false) {
+            const usageSnap  = await window.firebaseGet(mixerUsageRef());
+            const usageCount = usageSnap.val() || 0;
+            applyMixerUI(false, usageCount);
+        }
+    });
+
+    // ── Initial load: sync UI from Firebase usage count ──────────────────
+    (async () => {
+        const usageSnap  = await window.firebaseGet(mixerUsageRef());
+        const usageCount = usageSnap.val() || 0;
+        const statusSnap = await window.firebaseGet(motorStatusRef);
+        applyMixerUI(statusSnap.val() === 'running', usageCount);
+    })();
+
+    // ── Poll sensor lock every 3 seconds ─────────────────────────────────
+    updateSensorLock();
+    setInterval(updateSensorLock, 3000);
+
+    // ── Toggle click handler ──────────────────────────────────────────────
+    toggle.addEventListener('click', async () => {
+
+        // FIX 1: Block if auth hasn't resolved yet
+        if (sessionStorage.getItem('authResolved') !== 'true') {
+            showMixerAlert('⏳ Still loading permissions, please wait a moment...', 'warning');
+            return;
+        }
+
+        // FIX 3: Block if sensors not stable
+        if (!sensorsAreStable()) {
+            showMixerAlert('⚠️ Sensors are still stabilizing. Please wait before using the mixer.', 'warning');
+            return;
+        }
+
+        if (sessionStorage.getItem('isAuthorizedForMixer') !== 'true') {
+            showMixerAlert('🔒 Access Denied: Please verify your profile to control the mixer.', 'error');
+            return;
+        }
+
+        // FIX 2: Read usage count from Firebase, not localStorage
+        const usageSnap  = await window.firebaseGet(mixerUsageRef());
+        const usageCount = usageSnap.val() || 0;
+
+        const statusSnap  = await window.firebaseGet(motorStatusRef);
+        const motorIsOn   = statusSnap.val() === 'running';
+
+        if (!motorIsOn) {
+            // ── Turn ON ───────────────────────────────────────────────────
+            if (usageCount >= 2) {
+                showMixerAlert('⚠️ You can only turn the mixer ON twice per day.', 'warning');
+                applyMixerUI(false, usageCount);
+                return;
+            }
             try {
                 await window.firebaseSet(motorRef, true);
-                mixerData.on = true; mixerData.count++; mixerData.date = today;
-                localStorage.setItem('mixerData', JSON.stringify(mixerData));
-                applyMixerUI();
-                showMixerAlert(`✅ Mixer turned ON (${mixerData.count}/2)`, 'success');
-            } catch (e) { showMixerAlert('❌ Failed to turn on mixer: ' + e.message, 'error'); }
+                const newCount = usageCount + 1;
+                await window.firebaseSet(mixerUsageRef(), newCount);
+                applyMixerUI(true, newCount);
+                showMixerAlert(`✅ Mixer turned ON (${newCount}/2 uses today)`, 'success');
+            } catch (e) {
+                showMixerAlert('❌ Failed to turn on mixer: ' + e.message, 'error');
+            }
         } else {
+            // ── Turn OFF ──────────────────────────────────────────────────
             try {
                 await window.firebaseSet(motorRef, false);
-                mixerData.on = false;
-                localStorage.setItem('mixerData', JSON.stringify(mixerData));
-                applyMixerUI();
+                applyMixerUI(false, usageCount);
                 showMixerAlert('🛑 Mixer turned OFF', 'error');
-            } catch (e) { showMixerAlert('❌ Failed to turn off mixer: ' + e.message, 'error'); }
+            } catch (e) {
+                showMixerAlert('❌ Failed to turn off mixer: ' + e.message, 'error');
+            }
         }
     });
 };
@@ -182,43 +306,53 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
 .chart-label #readinessLabel  { font-weight:800; font-size:clamp(20px,6vw,28px); line-height:1; }
 .chart-label #readinessStatus { color:var(--muted); font-size:.9rem; }
 
-/* Stage card — color injected dynamically by JS */
 .stage-card-inner {
     background:linear-gradient(135deg,#4CAF5018,#4CAF5008);
     border-left:4px solid #4CAF50;
     border-radius:12px; padding:14px 16px;
 }
-.stage-name { font-size:16px; font-weight:700; color:#4CAF50; margin-bottom:6px; }
-
-/* Debug/info badge */
+.stage-name  { font-size:16px; font-weight:700; color:#4CAF50; margin-bottom:6px; }
 .stage-debug { font-size:10px; color:var(--muted); margin-top:6px; opacity:.8; }
 
 .bar-container { width:100%; background:#E9ECEF; height:12px; border-radius:10px; overflow:hidden; position:relative; }
 .bar { height:100%; width:0%; border-radius:10px; transition:width .9s ease; }
 .bar::after { content:""; position:absolute; inset:0; transform:translateX(-100%); background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent); animation:shimmer 1.8s infinite; }
 @keyframes shimmer { 50%{transform:translateX(0)} 100%{transform:translateX(100%)} }
+
 .small-muted { color:var(--muted); opacity:.9; font-size:.92rem; }
 .dashboard-container { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; padding:16px; }
 .sensor-card { position:relative; border-radius:18px; padding:20px; text-align:center; color:#0f172a; background:#ffffff; box-shadow:0 6px 16px rgba(2,6,23,.06); }
 .sensor-card .icon-wrap { width:52px; height:52px; border-radius:50%; display:grid; place-items:center; margin:0 auto 10px; background:#E8F5E9; box-shadow:0 0 0 0 rgba(76,175,80,.5); animation:ringPulse 2.6s infinite; }
 @keyframes ringPulse { 0%{box-shadow:0 0 0 0 rgba(76,175,80,.42)} 70%{box-shadow:0 0 0 14px rgba(76,175,80,0)} 100%{box-shadow:0 0 0 0 rgba(76,175,80,0)} }
 .sensor-card .icon { font-size:24px; color:var(--brand-dark); }
-.sensor-card h3 { margin:.25rem 0 .25rem; font-size:clamp(.9rem,2.5vw,1rem); }
+.sensor-card h3    { margin:.25rem 0 .25rem; font-size:clamp(.9rem,2.5vw,1rem); }
 .sensor-card .value { font-size:clamp(20px,5vw,26px); font-weight:800; margin-bottom:12px; }
+
 .thermo-meter,.droplet-meter,.gas-meter,.ph-meter { width:100%; height:14px; border-radius:50px; background:#f1f5f9; overflow:hidden; }
 .thermo-fill  { height:100%; width:0%; background:linear-gradient(90deg,#ff7b00,#ff0000); transition:width 1s ease; }
 .droplet-fill { height:100%; width:0%; background:linear-gradient(90deg,#00b4d8,#48cae4); transition:width 1s ease; }
 .gas-fill     { height:100%; width:0%; background:linear-gradient(90deg,#ffba08,#f48c06); transition:width 1s ease; }
 .ph-fill      { height:100%; width:0%; background:linear-gradient(90deg,#ff0000,#ffae00,#00ff00,#0088ff,#4b0082); transition:width 1s ease; }
+
 .ok-glow   { box-shadow:0 0 0 0 rgba(34,197,94,.45),0 14px 34px rgba(34,197,94,.12); }
 .warn-glow { box-shadow:0 0 0 0 rgba(245,158,11,.45),0 14px 34px rgba(245,158,11,.12); }
 .crit-glow { box-shadow:0 0 0 0 rgba(239,68,68,.55),0 16px 36px rgba(239,68,68,.18); animation:shake .4s ease; }
 @keyframes shake { 20%{transform:translateX(-2px)} 40%{transform:translateX(2px)} 60%{transform:translateX(-1px)} 80%{transform:translateX(1px)} }
+
 .mixer-alert { position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:1500; display:none; padding:10px 16px; border-radius:10px; font-weight:600; max-width:calc(100vw - 32px); text-align:center; }
 .mixer-alert.success { background:#E9F8EC; color:#256333; border-left:6px solid var(--brand-dark); }
 .mixer-alert.warning { background:#FFF8E1; color:#7A5A00; border-left:6px solid #fbbf24; }
 .mixer-alert.error   { background:#FFE5E5; color:#7F1D1D; border-left:6px solid #ef4444; }
+
 .unauthorized-message { background:#FFF8E1; border:2px solid #fbbf24; border-radius:12px; padding:14px 18px; color:#7A5A00; font-weight:600; text-align:center; display:none; margin:0 16px; }
+
+/* Sensor lock badge */
+#sensorLockBadge {
+    display:none;
+    background:#FFF3E0; border:1.5px solid #fb923c; border-radius:10px;
+    color:#92400e; font-size:.85rem; font-weight:600;
+    padding:10px 14px; margin:0 0 12px; text-align:center;
+}
 
 .main { margin-left:260px; padding:20px; min-height:100vh; }
 .top-section { display:grid; grid-template-columns:2fr 3fr; gap:20px; align-items:start; padding:0 0 20px; }
@@ -285,7 +419,7 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
             </div>
         </div>
 
-        <!-- Stage card (full width) — populated by predict_readiness.php via JS -->
+        <!-- Stage card -->
         <div class="card p-3 stage-card">
             <small class="small-muted fw-bold">🧬 Compost Stage</small>
             <div class="stage-card-inner mt-2" id="stageCardInner">
@@ -366,10 +500,17 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
     <div id="mixerAlert" class="mixer-alert"></div>
     <div id="unauthorizedMessage" class="unauthorized-message"></div>
     <div id="mixerControls">
+
+        <!-- Sensor lock badge — shown when readings aren't stable yet -->
+        <div id="sensorLockBadge"></div>
+
         <div id="mixerToggle" style="width:70px;height:36px;background:#cfd8cf;border-radius:20px;position:relative;cursor:pointer;margin:auto;touch-action:manipulation;">
             <div id="mixerKnob" style="width:30px;height:30px;background:#fff;border-radius:50%;position:absolute;top:3px;left:4px;transition:left .25s;pointer-events:none;"></div>
         </div>
         <div id="mixerText" class="fw-medium mt-2">Mixer is OFF</div>
+
+        <!-- FIX: Now shows live Firebase usage count, not localStorage -->
+        <div id="mixerLimitInfo" class="small-muted">Used today: 0/2</div>
         <div class="small-muted">You can turn mixer ON twice per day</div>
     </div>
 </div>
@@ -379,7 +520,6 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
 <script>
 function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 
-// ── Stage color map (matches predict_readiness.php stages) ────────────────
 const STAGE_COLORS = {
     'no_compost'  : '#94a3b8',
     'initial'     : '#fb923c',
@@ -389,8 +529,6 @@ const STAGE_COLORS = {
     'maturation'  : '#22c55e',
 };
 
-// Stage descriptions — used for the stage card text
-// These must be kept in sync with predict_readiness.php
 const STAGE_DESCS = {
     'no_compost'  : 'No compost detected. Add organic waste to begin composting.',
     'initial'     : 'Fresh batch just added. Microorganisms beginning to establish. Weight loss and heat will build over the next few days.',
@@ -432,7 +570,6 @@ function updateDonut(readiness) {
     }
 }
 
-// ── Stage card update — driven by predict_readiness.php response ───────────
 function updateStageCard(data) {
     const stage     = data.stage || 'no_compost';
     const stageName = data.stage_name || 'Unknown';
@@ -450,31 +587,24 @@ function updateStageCard(data) {
         inner.style.borderLeftColor = color;
         inner.style.background = `linear-gradient(135deg,${color}18,${color}08)`;
     }
-
-    // Show helpful debug info: elapsed time + stage ceiling
     if (debugEl && data.analytics) {
-        const h = data.analytics.elapsed_hours || 0;
-        const c = data.ml ? data.ml.stage_ceiling : '?';
+        const h  = data.analytics.elapsed_hours || 0;
+        const c  = data.ml ? data.ml.stage_ceiling : '?';
         const wl = data.weight_tracking ? data.weight_tracking.credited_weight_loss : '?';
         debugEl.textContent = `${h.toFixed(1)}h elapsed · credited loss: ${wl}% · ceiling: ${c}%`;
     }
 }
 
-// ── Main poll: fetches predict_readiness.php (single source of truth) ──────
 function updateChart() {
     fetch('predict_readiness.php', {cache:'no-store'})
         .then(r => r.json())
         .then(data => {
-            // Donut
             updateDonut(data.readiness);
-
-            // Stage card — from server, NOT recalculated in JS
             updateStageCard(data);
 
-            // Fertilizer
-            const fo   = data.fertilizer_output || {};
-            const pred = parseFloat(fo.predicted_output_kg) || 0;
-            const act  = parseFloat(fo.actual_output_kg)    || 0;
+            const fo      = data.fertilizer_output || {};
+            const pred    = parseFloat(fo.predicted_output_kg) || 0;
+            const act     = parseFloat(fo.actual_output_kg)    || 0;
             const isReady = fo.is_ready || false;
 
             const predEl = document.getElementById('predictedOutput');
@@ -500,19 +630,18 @@ function updateChart() {
         .catch(e => console.error('Chart fetch error:', e));
 }
 
-// Poll every 10 seconds
 updateChart();
 setInterval(updateChart, 10000);
 
-// ── Firebase live listeners (sensors only — no scoring done here) ──────────
+// ── Firebase live sensor listeners ────────────────────────────────────────
 window.setupFirebaseListeners = function() {
     const db = window.firebaseDatabase;
 
     function statusGlow(card,value,warnAt,critAt){
         card.classList.remove('ok-glow','warn-glow','crit-glow');
-        if(value>=critAt) card.classList.add('crit-glow');
+        if(value>=critAt)      card.classList.add('crit-glow');
         else if(value>=warnAt) card.classList.add('warn-glow');
-        else card.classList.add('ok-glow');
+        else                   card.classList.add('ok-glow');
     }
 
     window.firebaseOnValue(window.firebaseRef(db,'sensors/temperature/latest'),(s)=>{
@@ -551,7 +680,7 @@ window.setupFirebaseListeners = function() {
     document.getElementById('capacityDisplay').textContent='100';
 };
 
-// ── Sensor status ──────────────────────────────────────────────────────────
+// ── Sensor status ─────────────────────────────────────────────────────────
 function loadSensorStatus(){
     fetch("sensor_status.php").then(r=>r.json()).then(data=>{
         const container=document.getElementById("sensor-status-container");
@@ -562,9 +691,9 @@ function loadSensorStatus(){
             if(sensor.class==="faulty") faultyCount++;
             let icon="📡";
             if(sensor.name==="Temperature") icon="🌡️";
-            if(sensor.name==="Humidity") icon="💧";
-            if(sensor.name==="Gas") icon="🔥";
-            if(sensor.name==="pH") icon="⚗️";
+            if(sensor.name==="Humidity")    icon="💧";
+            if(sensor.name==="Gas")         icon="🔥";
+            if(sensor.name==="pH")          icon="⚗️";
             container.innerHTML+=`<div class="sensor-top-badge ${sensor.class}"><span class="icon">${icon}</span><span>${sensor.name}</span><span class="dot ${sensor.class}"></span><span>${sensor.status}</span><span class="sensor-time">(${sensor.lastUpdate})</span></div>`;
         });
         const ft=document.getElementById("faultyText");
@@ -582,7 +711,7 @@ function updateDateTime(){
 setInterval(updateDateTime,1000);
 updateDateTime();
 
-// ── History Chart ──────────────────────────────────────────────────────────
+// ── History Chart ─────────────────────────────────────────────────────────
 (function(){
     let historyChartInstance=null;
     function loadHistoryChart(){
