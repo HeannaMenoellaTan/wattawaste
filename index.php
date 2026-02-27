@@ -658,7 +658,7 @@ window.setupFirebaseListeners = function() {
     });
     window.firebaseOnValue(window.firebaseRef(db,'sensors/gas/latest'),(s)=>{
         const v=parseFloat(s.val())||0;
-        document.getElementById('gasValue').textContent=v.toFixed(2)+' ppm';
+        document.getElementById('gasValue').textContent=v.toFixed(2);
         document.getElementById('gasFill').style.width=clamp(v/10,0,100)+'%';
         statusGlow(document.getElementById('gasCard'),v,600,800);
     });

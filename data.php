@@ -631,7 +631,7 @@ canvas {
 /* Floating Add Button */
 .add-plant-btn {
     position: fixed;
-    bottom: 100px;        /* ← moved UP, above the notification bell */
+    bottom: 100px;
     right: 30px;
     width: 60px;
     height: 60px;
@@ -643,7 +643,7 @@ canvas {
     cursor: pointer;
     box-shadow: 0 6px 20px rgba(35, 237, 153, 0.4);
     transition: all 0.3s ease;
-    z-index: 99999;       /* ← higher than the notification bell */
+    z-index: 99999;
     display: none;
     align-items: center;
     justify-content: center;
@@ -687,14 +687,8 @@ canvas {
 }
 
 @keyframes modalSlideIn {
-    from {
-        opacity: 0;
-        transform: translateY(-50px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(-50px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 .modal-header {
@@ -878,49 +872,33 @@ canvas {
 }
 
 @keyframes popupSlideIn {
-    from {
-        opacity: 0;
-        transform: translate(-50%, -60%);
-    }
-    to {
-        opacity: 1;
-        transform: translate(-50%, -50%);
-    }
+    from { opacity: 0; transform: translate(-50%, -60%); }
+    to   { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 .popup-overlay {
     display: none;
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     background: rgba(0,0,0,0.5);
     z-index: 9999;
 }
 
-.popup-overlay.show {
-    display: block;
-}
+.popup-overlay.show { display: block; }
 
 .plant-popup .close {
     position: absolute;
-    top: 15px;
-    right: 15px;
+    top: 15px; right: 15px;
     font-size: 28px;
     cursor: pointer;
     color: #666;
     transition: color 0.3s;
 }
 
-.plant-popup .close:hover {
-    color: #000;
-}
+.plant-popup .close:hover { color: #000; }
 
-.popup-icon {
-    font-size: 80px;
-    margin-bottom: 15px;
-}
+.popup-icon { font-size: 80px; margin-bottom: 15px; }
 
 .popup-content h4 {
     font-size: 24px;
@@ -934,10 +912,7 @@ canvas {
     margin-bottom: 20px;
 }
 
-.popup-info {
-    text-align: left;
-    margin: 20px 0;
-}
+.popup-info { text-align: left; margin: 20px 0; }
 
 .info-row {
     display: flex;
@@ -946,14 +921,8 @@ canvas {
     border-bottom: 1px solid rgba(0,0,0,0.05);
 }
 
-.info-label {
-    font-weight: 600;
-    color: var(--ink);
-}
-
-.info-value {
-    color: var(--muted);
-}
+.info-label { font-weight: 600; color: var(--ink); }
+.info-value { color: var(--muted); }
 
 .fertilizer-badge {
     display: inline-block;
@@ -966,38 +935,20 @@ canvas {
 }
 
 @media(max-width:768px) { 
-    .charts-container { 
-        grid-template-columns: 1fr; 
-    }
-    
-    .plant-grid { 
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); 
-    }
-    
-    .season-selector {
-        width: 100%;
-    }
-    
-    .season-btn {
-        flex: 1;
-        justify-content: center;
-    }
-    
-    .add-plant-btn {
-        bottom: 90px;
-        right: 20px;
-    }
+    .charts-container { grid-template-columns: 1fr; }
+    .plant-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    .season-selector { width: 100%; }
+    .season-btn { flex: 1; justify-content: center; }
+    .add-plant-btn { bottom: 90px; right: 20px; }
 }
 </style>
 </head>
 <body>
 
-<?php  
-include 'sideabr.php';
-?>
+<?php include 'sideabr.php'; ?>
 
 <div class="main">
-<?php include 'topnav.php';?>
+<?php include 'topnav.php'; ?>
 
 <h2>📊 Data Analytics Overview</h2>
 
@@ -1007,7 +958,7 @@ include 'sideabr.php';
   $sensors = [
       ['title'=>'Temperature (°C)','kpi'=>$tempKPI,'id'=>'tempChart','color'=>'#ff5733','data'=>$temperature],
       ['title'=>'Humidity (%)','kpi'=>$humidityKPI,'id'=>'humidityChart','color'=>'#70c575','data'=>$humidity],
-      ['title'=>'Gas Level (ppm)','kpi'=>$gasKPI,'id'=>'gasChart','color'=>'#2e86de','data'=>$gas],
+      ['title'=>'Gas Level','kpi'=>$gasKPI,'id'=>'gasChart','color'=>'#2e86de','data'=>$gas],
       ['title'=>'pH Level','kpi'=>$phKPI,'id'=>'phChart','color'=>'#28a745','data'=>$ph]
   ];
   foreach($sensors as $s):
@@ -1275,9 +1226,7 @@ Object.keys(sensorsData).forEach(id=>{
         options:{ 
             responsive:true, 
             maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false }
-            },
+            plugins: { legend: { display: false } },
             scales:{ 
                 x:{
                     ticks:{color:'#2f5233', font: {size: 10}},
@@ -1298,22 +1247,11 @@ const plantDatabase = <?php echo json_encode($plantDatabase); ?>;
 
 // Filter plants by season
 function filterPlantsBySeason(season) {
-    // Update active button
     document.querySelectorAll('.season-btn').forEach(btn => {
-        if (btn.dataset.season === season) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
+        btn.classList.toggle('active', btn.dataset.season === season);
     });
-
-    // Filter plant cards
     document.querySelectorAll('#seasonalPlantsGrid .plant-card').forEach(card => {
-        if (card.dataset.season === season) {
-            card.style.display = 'block';
-        } else {
-            card.style.display = 'none';
-        }
+        card.style.display = card.dataset.season === season ? 'block' : 'none';
     });
 }
 
@@ -1339,7 +1277,7 @@ function showPlantDetails(plant) {
     document.getElementById('popupScientific').textContent = plant.scientific_name;
     document.getElementById('popupDescription').textContent = plant.description;
     
-    const infoHTML = `
+    document.getElementById('popupInfo').innerHTML = `
         <div class="info-row">
             <span class="info-label">Season:</span>
             <span class="info-value">${plant.season}</span>
@@ -1349,9 +1287,7 @@ function showPlantDetails(plant) {
             <span class="info-value">${plant.nitrogen_per_m2}-${plant.phosphorus_per_m2}-${plant.potassium_per_m2}g</span>
         </div>
     `;
-    document.getElementById('popupInfo').innerHTML = infoHTML;
     document.getElementById('popupFertilizer').textContent = `Uses ${plant.fertilizer_type} Compost`;
-    
     document.getElementById('plantPopup').classList.add('show');
     document.getElementById('popupOverlay').classList.add('show');
 }
@@ -1361,7 +1297,6 @@ function closePlantPopup() {
     document.getElementById('popupOverlay').classList.remove('show');
 }
 
-// Add Plant Modal Functions
 function openAddPlantModal() {
     document.getElementById('addPlantModal').classList.add('active');
 }
@@ -1373,7 +1308,6 @@ function closeAddPlantModal() {
     document.getElementById('modalAlertContainer').innerHTML = '';
 }
 
-// Calculate fertilizer preview
 document.getElementById('plotSize')?.addEventListener('input', updateFertilizerPreview);
 document.getElementById('plantSelect')?.addEventListener('change', updateFertilizerPreview);
 
@@ -1383,22 +1317,16 @@ function updateFertilizerPreview() {
     
     if (plantData && plotSize > 0) {
         const plant = JSON.parse(plantData);
-        const n = (plant.nitrogen_per_m2 * plotSize).toFixed(1);
-        const p = (plant.phosphorus_per_m2 * plotSize).toFixed(1);
-        const k = (plant.potassium_per_m2 * plotSize).toFixed(1);
-        const total = ((plant.nitrogen_per_m2 + plant.phosphorus_per_m2 + plant.potassium_per_m2) * plotSize / 1000).toFixed(2);
-        
-        document.getElementById('previewN').textContent = n;
-        document.getElementById('previewP').textContent = p;
-        document.getElementById('previewK').textContent = k;
-        document.getElementById('previewTotal').textContent = total;
+        document.getElementById('previewN').textContent = (plant.nitrogen_per_m2 * plotSize).toFixed(1);
+        document.getElementById('previewP').textContent = (plant.phosphorus_per_m2 * plotSize).toFixed(1);
+        document.getElementById('previewK').textContent = (plant.potassium_per_m2 * plotSize).toFixed(1);
+        document.getElementById('previewTotal').textContent = ((plant.nitrogen_per_m2 + plant.phosphorus_per_m2 + plant.potassium_per_m2) * plotSize / 1000).toFixed(2);
         document.getElementById('fertilizerPreview').style.display = 'block';
     } else {
         document.getElementById('fertilizerPreview').style.display = 'none';
     }
 }
 
-// Add plant form submission
 document.getElementById('addPlantForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
@@ -1406,10 +1334,7 @@ document.getElementById('addPlantForm')?.addEventListener('submit', async (e) =>
     const plotSize = parseFloat(document.getElementById('plotSize').value);
     const userId = sessionStorage.getItem('userId');
     
-    if (!userId) {
-        showModalAlert('Please log in to add plants', 'error');
-        return;
-    }
+    if (!userId) { showModalAlert('Please log in to add plants', 'error'); return; }
     
     try {
         const userPlantsRef = window.firebaseRef(window.firebaseDatabase, `user_plants/${userId}`);
@@ -1437,7 +1362,6 @@ document.getElementById('addPlantForm')?.addEventListener('submit', async (e) =>
     }
 });
 
-// Load user's plants
 window.loadUserPlants = async function() {
     const userId = sessionStorage.getItem('userId');
     if (!userId) return;
@@ -1472,12 +1396,10 @@ window.loadUserPlants = async function() {
             `;
         });
         grid.innerHTML = html;
-        
         calculateFertilizerNeeds();
     });
 };
 
-// Delete plant
 window.deletePlant = async function(plantId) {
     if (!confirm('Are you sure you want to remove this plant?')) return;
     
@@ -1493,35 +1415,20 @@ window.deletePlant = async function(plantId) {
     }
 };
 
-// Calculate fertilizer needs using predict_readiness API
 async function calculateFertilizerNeeds() {
     const userId = sessionStorage.getItem('userId');
     if (!userId) return;
     
     try {
-        console.log('🌾 Fetching fertilizer data from predict_readiness API...');
-        
-        // Get fertilizer data from predict_readiness API (more accurate than raw weight)
         const response = await fetch('predict_readiness.php', {cache: 'no-store'});
         const data = await response.json();
-        
-        console.log('📊 Prediction API Response:', data);
         
         const fertilizerOutput = data.fertilizer_output || {};
         const predictedOutput = parseFloat(fertilizerOutput.predicted_output_kg) || 0;
         const actualOutput = parseFloat(fertilizerOutput.actual_output_kg) || 0;
         const isReady = fertilizerOutput.is_ready || false;
-        
-        // Use actual output if ready, otherwise use predicted
         const availableFertilizer = isReady ? actualOutput : predictedOutput;
         
-        console.log('🌾 Fertilizer Calculation:');
-        console.log('  - Predicted Output:', predictedOutput, 'kg');
-        console.log('  - Actual Output:', actualOutput, 'kg');
-        console.log('  - Is Ready:', isReady);
-        console.log('  - Available Fertilizer:', availableFertilizer, 'kg');
-        
-        // Get user's plants
         const userPlantsRef = window.firebaseRef(window.firebaseDatabase, `user_plants/${userId}`);
         const plantsSnapshot = await window.firebaseGet(userPlantsRef);
         const plants = plantsSnapshot.val();
@@ -1535,50 +1442,35 @@ async function calculateFertilizerNeeds() {
         
         const balance = (availableFertilizer - totalRequired).toFixed(2);
         
-        // Update display
         document.getElementById('availableFertilizer').textContent = availableFertilizer.toFixed(2) + ' kg';
         document.getElementById('totalRequired').textContent = totalRequired.toFixed(2) + ' kg';
         document.getElementById('fertilizerBalance').textContent = balance + ' kg';
         
-        // Color code the balance
         const balanceEl = document.getElementById('fertilizerBalance');
         if (parseFloat(balance) >= 0) {
             balanceEl.style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
-            balanceEl.style.webkitBackgroundClip = 'text';
-            balanceEl.style.webkitTextFillColor = 'transparent';
         } else {
             balanceEl.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
-            balanceEl.style.webkitBackgroundClip = 'text';
-            balanceEl.style.webkitTextFillColor = 'transparent';
         }
+        balanceEl.style.webkitBackgroundClip = 'text';
+        balanceEl.style.webkitTextFillColor = 'transparent';
         
-        // Add status indicator badge
         const availableEl = document.getElementById('availableFertilizer').parentElement;
         let statusBadge = availableEl.querySelector('.status-badge');
-        
         if (!statusBadge) {
             statusBadge = document.createElement('div');
             statusBadge.className = 'status-badge';
             availableEl.appendChild(statusBadge);
         }
-        
         statusBadge.innerHTML = isReady 
             ? '<i class="fas fa-check-circle"></i> Ready to harvest'
             : '<i class="fas fa-clock"></i> Still composting';
-        
         statusBadge.style.cssText = `
-            margin-top: 8px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            display: inline-block;
+            margin-top: 8px; padding: 6px 12px; border-radius: 20px;
+            font-size: 12px; font-weight: 600; display: inline-block;
             background: ${isReady ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)'};
             color: ${isReady ? '#16a34a' : '#f59e0b'};
         `;
-        
-        console.log('✅ Fertilizer calculation complete!');
-        
     } catch (error) {
         console.error('❌ Error calculating fertilizer needs:', error);
         document.getElementById('availableFertilizer').textContent = '-- kg';
@@ -1587,24 +1479,16 @@ async function calculateFertilizerNeeds() {
     }
 }
 
-// Modal alert
 function showModalAlert(message, type) {
     const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
-    document.getElementById('modalAlertContainer').innerHTML = `
-        <div class="alert ${alertClass}">${message}</div>
-    `;
-    setTimeout(() => {
-        document.getElementById('modalAlertContainer').innerHTML = '';
-    }, 5000);
+    document.getElementById('modalAlertContainer').innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+    setTimeout(() => { document.getElementById('modalAlertContainer').innerHTML = ''; }, 5000);
 }
 
-// Close popup with Escape key
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closePlantPopup();
-        if (document.getElementById('addPlantModal').classList.contains('active')) {
-            closeAddPlantModal();
-        }
+        if (document.getElementById('addPlantModal').classList.contains('active')) closeAddPlantModal();
     }
 });
 </script>

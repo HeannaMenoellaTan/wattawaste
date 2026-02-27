@@ -114,7 +114,7 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
     <div class="row g-4 mb-4">
         <div class="col-lg-8">
             <div class="gas-hero">
-                <div class="gas-display-large" id="gasDisplay">-- ppm</div>
+                <div class="gas-display-large" id="gasDisplay">--</div>
                 <div class="status-badge-large ok" id="statusBadge">Loading...</div>
                 <div class="mt-3 small" style="opacity:.9;position:relative;z-index:1;" id="statusDesc">Fetching gas data from sensors...</div>
                 <div class="mt-2 small" style="opacity:.8;position:relative;z-index:1;" id="lastUpdateText">Last updated: --</div>
@@ -125,10 +125,10 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
                 <h6 class="text-center mb-3">Gas Emission</h6>
                 <div class="gas-visual"><i class="fas fa-wind gas-icon"></i></div>
                 <div class="mt-3 text-center small-muted">
-                    <div><span style="color:#ef4444;">●</span> ≥800 ppm Critical</div>
-                    <div><span style="color:#f59e0b;">●</span> 600–799 ppm Warning</div>
-                    <div><span style="color:#10b981;">●</span> 200–599 ppm Optimal</div>
-                    <div><span style="color:#38bdf8;">●</span> &lt;200 ppm Below Range</div>
+                    <div><span style="color:#ef4444;">●</span> ≥800 Critical</div>
+                    <div><span style="color:#f59e0b;">●</span> 600–799 Warning</div>
+                    <div><span style="color:#10b981;">●</span> 200–599 Optimal</div>
+                    <div><span style="color:#38bdf8;">●</span> &lt;200 Below Range</div>
                 </div>
             </div>
         </div>
@@ -147,21 +147,21 @@ body { background:var(--bg); font-family:Poppins,system-ui,Segoe UI,Arial; color
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-wind text-danger mb-2" style="font-size:32px;"></i>
-                <div class="stat-value" id="maxGasStat">-- ppm</div>
+                <div class="stat-value" id="maxGasStat">--</div>
                 <div class="stat-label">Maximum (selected range)</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-chart-line text-success mb-2" style="font-size:32px;"></i>
-                <div class="stat-value" id="avgGasStat">-- ppm</div>
+                <div class="stat-value" id="avgGasStat">--</div>
                 <div class="stat-label">Average (selected range)</div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card">
                 <i class="fas fa-smog text-info mb-2" style="font-size:32px;"></i>
-                <div class="stat-value" id="minGasStat">-- ppm</div>
+                <div class="stat-value" id="minGasStat">--</div>
                 <div class="stat-label">Minimum (selected range)</div>
             </div>
         </div>
@@ -229,7 +229,7 @@ function getRangeCutoffMs(range) {
 }
 function updateGasDisplay(gas) {
     const info = getGasStatus(gas);
-    document.getElementById('gasDisplay').textContent     = gas.toFixed(0)+' ppm';
+    document.getElementById('gasDisplay').textContent     = gas.toFixed(0);
     document.getElementById('statusBadge').textContent    = info.status;
     document.getElementById('statusDesc').textContent     = info.desc;
     document.getElementById('lastUpdateText').textContent = 'Last updated: '+new Date().toLocaleString('en-US',{hour:'numeric',minute:'2-digit',month:'short',day:'numeric',year:'numeric'});
@@ -242,9 +242,9 @@ function updateGasDisplay(gas) {
 function updateStatistics(entries) {
     if (!entries.length) return;
     const vals = entries.map(e=>e.value);
-    document.getElementById('maxGasStat').textContent  = Math.max(...vals).toFixed(0)+' ppm';
-    document.getElementById('avgGasStat').textContent  = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(0)+' ppm';
-    document.getElementById('minGasStat').textContent  = Math.min(...vals).toFixed(0)+' ppm';
+    document.getElementById('maxGasStat').textContent  = Math.max(...vals).toFixed(0);
+    document.getElementById('avgGasStat').textContent  = (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(0);
+    document.getElementById('minGasStat').textContent  = Math.min(...vals).toFixed(0);
     document.getElementById('readingsCount').textContent = `(${entries.length} readings)`;
 }
 function renderChart(entries) {
@@ -257,14 +257,14 @@ function renderChart(entries) {
     grad.addColorStop(1,'rgba(244,140,6,0.05)');
     const step=Math.ceil(labels.length/10);
     const tickLabels=labels.map((l,i)=>i%step===0?l:'');
-    gasChart=new Chart(ctx,{type:'line',data:{labels:tickLabels,datasets:[{label:'Gas Level (ppm)',data:values,
+    gasChart=new Chart(ctx,{type:'line',data:{labels:tickLabels,datasets:[{label:'Gas Level',data:values,
         borderColor:'#ffba08',backgroundColor:grad,borderWidth:3,tension:0.4,fill:true,
         pointRadius:values.length>50?0:3,pointHoverRadius:6,
         pointBackgroundColor:'#ffba08',pointBorderColor:'#fff',pointBorderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:true,
         plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(0,0,0,0.8)',padding:12,
-            callbacks:{title:(items)=>labels[items[0].dataIndex],label:(ctx)=>' Gas: '+ctx.parsed.y.toFixed(0)+' ppm'}}},
-        scales:{y:{beginAtZero:true,min:0,max:1000,ticks:{callback:v=>v+' ppm'},grid:{color:'rgba(0,0,0,0.05)'}},
+            callbacks:{title:(items)=>labels[items[0].dataIndex],label:(ctx)=>' Gas: '+ctx.parsed.y.toFixed(0)}}},
+        scales:{y:{beginAtZero:true,min:0,max:1000,ticks:{callback:v=>v},grid:{color:'rgba(0,0,0,0.05)'}},
             x:{ticks:{maxTicksLimit:10,maxRotation:0},grid:{display:false}}}}});
 }
 function renderHistory(entries) {
@@ -277,7 +277,7 @@ function renderHistory(entries) {
         if(val>=800){bc='danger';bt='Critical';}
         else if(val>=600){bc='warning text-dark';bt='Warning';}
         else if(val<200){bc='info';bt='Below Range';}
-        return `<div class="history-item"><div><div class="history-value">${val.toFixed(0)} ppm</div>
+        return `<div class="history-item"><div><div class="history-value">${val.toFixed(0)}</div>
         <div class="history-time">${formatTimestamp(entry.ts)}</div></div>
         <span class="badge bg-${bc}">${bt}</span></div>`;
     }).join('');
@@ -305,7 +305,7 @@ function loadHistoryData(range) {
 }
 function showNoData() {
     document.getElementById('chartNoData').style.display='block';
-    ['maxGasStat','avgGasStat','minGasStat'].forEach(id=>document.getElementById(id).textContent='-- ppm');
+    ['maxGasStat','avgGasStat','minGasStat'].forEach(id=>document.getElementById(id).textContent='--');
     document.getElementById('readingsCount').textContent='';
     document.getElementById('historyContainer').innerHTML='<p class="text-muted text-center py-4">No data found for this time range.</p>';
 }
