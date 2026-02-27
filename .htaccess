@@ -1,0 +1,19 @@
+# ── Block direct browser access to sensitive files ────────────────────────────
+
+# Block all JSON files from being accessed via browser
+<FilesMatch "\.json$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Extra explicit block on service-account specifically
+<Files "service-account.json">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# Block other sensitive files while we're at it
+<FilesMatch "\.(env|log|sql|bak|sh|key|pem)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>

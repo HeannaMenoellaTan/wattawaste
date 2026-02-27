@@ -92,11 +92,11 @@ if ($humidity >= 70) {
 }
 if ($gas >= 800 && $ph < 6.0) {
     $phase             = 'anaerobic';
-    $automations[]     = ['icon'=>'⚙️','label'=>'Mixer Motor','action'=>'ENGAGE MOTOR','reason'=>"Gas {$gas} ppm + pH {$ph} — anaerobic decay detected.",'severity'=>'crit'];
+    $automations[]     = ['icon'=>'⚙️','label'=>'Mixer Motor','action'=>'ENGAGE MOTOR','reason'=>"Gas {$gas}  + pH {$ph} — anaerobic decay detected.",'severity'=>'crit'];
     $automations[]     = ['icon'=>'🌬️','label'=>'Top Vent','action'=>'OPEN TOP VENT','reason'=>'Increasing O₂ to restore aerobic conditions.','severity'=>'warn'];
-    $recommendations[] = "⚠️ Anaerobic shift (Gas: {$gas} ppm, pH: {$ph}). Motor running.";
+    $recommendations[] = "⚠️ Anaerobic shift (Gas: {$gas} , pH: {$ph}). Motor running.";
 } elseif ($gas >= 800) {
-    $recommendations[] = "💨 High gas ({$gas} ppm). If pH drops below 6.0, motor will auto-engage.";
+    $recommendations[] = "💨 High gas ({$gas} ). If pH drops below 6.0, motor will auto-engage.";
 }
 if ($phase === 'aerobic' && $humidity < 70 && $temp <= 70) {
     $automations[] = ['icon'=>'🌀','label'=>'Mode','action'=>'AEROBIC PHASE ACTIVE','reason'=>'All readings within aerobic range.','severity'=>'ok'];
@@ -157,7 +157,7 @@ onAuthStateChanged(auth,user=>{
     const map={
         'sensors/temperature/latest':['liveTemp','°C',1],
         'sensors/humidity/latest':   ['liveHum','%',1],
-        'sensors/gas/latest':        ['liveGas',' ppm',2],
+        'sensors/gas/latest':        ['liveGas','',2],
         'sensors/ph/latest':         ['livePH','',1],
         'sensors/weight/latest':     ['liveWeight',' kg',4],
     };
@@ -293,7 +293,7 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
     <div class="sensor-strip">
         <div class="sensor-pill"><div class="s-icon">🌡️</div><div class="s-label">Temperature</div><div class="s-value" id="liveTemp"><?php echo number_format($temp,1);?>°C</div></div>
         <div class="sensor-pill"><div class="s-icon">💧</div><div class="s-label">Humidity</div><div class="s-value" id="liveHum"><?php echo number_format($humidity,1);?>%</div></div>
-        <div class="sensor-pill"><div class="s-icon">💨</div><div class="s-label">Gas / CO₂</div><div class="s-value" id="liveGas"><?php echo number_format($gas,2);?> ppm</div></div>
+        <div class="sensor-pill"><div class="s-icon">💨</div><div class="s-label">Gas / CO₂</div><div class="s-value" id="liveGas"><?php echo number_format($gas,2);?> </div></div>
         <div class="sensor-pill"><div class="s-icon">⚗️</div><div class="s-label">pH Level</div><div class="s-value" id="livePH"><?php echo number_format($ph,1);?></div></div>
         <div class="sensor-pill"><div class="s-icon">⚖️</div><div class="s-label">Weight</div><div class="s-value" id="liveWeight"><?php echo number_format($weight,4);?> kg</div></div>
         <div class="sensor-pill"><div class="s-icon">📉</div><div class="s-label">Credited Loss</div><div class="s-value" id="liveWeightLoss"><?php echo round($weightLoss,1);?>%</div></div>
@@ -510,14 +510,14 @@ body{background:var(--bg);font-family:Poppins,system-ui,sans-serif;color:#333;mi
             <div class="col-md-6">
                 <div style="background:<?php echo $phase==='aerobic'?'#f0fdf4':'#f8fafc';?>;border:1.5px solid <?php echo $phase==='aerobic'?'#86efac':'#e2e8f0';?>;border-radius:12px;padding:14px;">
                     <div style="font-weight:700;margin-bottom:4px;">🌀 Aerobic Phase</div>
-                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">High oxygen and mixing motor active. Normal: temp 20–70°C, pH 6.0–8.5, gas &lt;800 ppm.</div>
+                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">High oxygen and mixing motor active. Normal: temp 20–70°C, pH 6.0–8.5, gas &lt;800 .</div>
                     <?php if($phase==='aerobic'):?><span style="font-size:11px;background:#dcfce7;color:#166534;padding:3px 10px;border-radius:10px;font-weight:700;margin-top:8px;display:inline-block;">▶ ACTIVE NOW</span><?php endif;?>
                 </div>
             </div>
             <div class="col-md-6">
                 <div style="background:<?php echo $phase==='anaerobic'?'#fffbeb':'#f8fafc';?>;border:1.5px solid <?php echo $phase==='anaerobic'?'#fde68a':'#e2e8f0';?>;border-radius:12px;padding:14px;">
                     <div style="font-weight:700;margin-bottom:4px;">🫧 Anaerobic Phase</div>
-                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">Triggered when gas ≥800 ppm AND pH &lt;6.0. Motor engages to restore aerobic conditions.</div>
+                    <div style="font-size:12px;color:var(--muted);line-height:1.6;">Triggered when gas ≥800 AND pH &lt;6.0. Motor engages to restore aerobic conditions.</div>
                     <?php if($phase==='anaerobic'):?><span style="font-size:11px;background:#fef9c3;color:#a16207;padding:3px 10px;border-radius:10px;font-weight:700;margin-top:8px;display:inline-block;">▶ ACTIVE NOW</span><?php endif;?>
                 </div>
             </div>

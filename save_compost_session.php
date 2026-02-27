@@ -8,11 +8,35 @@
  * 3. Resets sensors/weight/initial to the current live weight
  *    → This makes index.php, weight.php, predict_readiness.php etc.
  *      treat the next reading as a brand-new composting cycle
+ * 4. Deletes anonymous Firebase Auth users (ESP32 cleanup)
  */
 
 error_reporting(0);
 ini_set('display_errors', 0);
 header('Content-Type: application/json');
+
+// ── Helper: delete all anonymous Firebase Auth users ─────────────────────────
+function deleteAnonymousFirebaseUsers(): void {
+    try {
+        $factory = (new \Kreait\Firebase\Factory)
+->withServiceAccount('C:/xampp/secure/service-account.json')
+            ->withDatabaseUri('https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app/');
+
+        $auth   = $factory->createAuth();
+        foreach ($auth->listUsers() as $user) {
+            $isAnonymous = empty($user->email)
+                        && empty($user->phoneNumber)
+                        && empty($user->providerData ?? []);
+
+            if ($isAnonymous) {
+                $auth->deleteUser($user->uid);
+            }
+        }
+    } catch (Throwable $e) {
+        // Non-fatal — swallow silently so the main response is never broken
+        error_log('[save_compost_session] Anonymous user cleanup error: ' . $e->getMessage());
+    }
+}
 
 try {
     require_once __DIR__ . '/firebase_config.php';
@@ -59,7 +83,7 @@ try {
     $db->getReference("compost_sessions/{$key}")->set($session);
 
     // ── 2. Archive sensor histories ───────────────────────────────────────────
-    $sensors = ['temperature', 'humidity', 'gas', 'ph', 'weight'];
+    $sensors     = ['temperature', 'humidity', 'gas', 'ph', 'weight'];
     $archiveBase = "compost_history/{$key}";
 
     // Save session metadata in archive
@@ -99,15 +123,17 @@ try {
     $currentWeight = $db->getReference("sensors/weight/latest")->getValue() ?? 0;
     $db->getReference("sensors/weight/initial")->set((float)$currentWeight);
 
-    // ── 4. Respond ────────────────────────────────────────────────────────────
+    // ── 4. Delete anonymous Firebase Auth users created by ESP32 ─────────────
+    deleteAnonymousFirebaseUsers();
+
+    // ── 5. Respond ────────────────────────────────────────────────────────────
     echo json_encode([
-        'success'        => true,
-        'key'            => $key,
-        'archived'       => true,
+        'success'          => true,
+        'key'              => $key,
+        'archived'         => true,
         'newInitialWeight' => (float)$currentWeight,
-        'message'        => 'Session saved. History archived. New cycle started.',
+        'message'          => 'Session saved. History archived. Anonymous users cleaned up. New cycle started.',
     ]);
-    
 
 } catch (Throwable $e) {
     http_response_code(500);

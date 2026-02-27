@@ -538,6 +538,66 @@ require_once 'firebase_config.php';
 
         #imageInput { display: none; }
 
+        /* ── Apply as Admin button ── */
+        .admin-apply-btn {
+            padding: 13px 32px;
+            background: linear-gradient(135deg, #3e61ff, #8e44ff);
+            border: none;
+            border-radius: 12px;
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 14px rgba(98, 75, 255, 0.35);
+            font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .admin-apply-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(98, 75, 255, 0.5);
+        }
+        .admin-apply-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .admin-apply-btn.submitted {
+            background: linear-gradient(135deg, #23ed99ff, #0f8156ff);
+            box-shadow: 0 4px 14px rgba(35, 237, 153, 0.35);
+        }
+
+        /* ── Admin Modal specific ── */
+        .admin-modal-icon {
+            font-size: 56px;
+            margin-bottom: 12px;
+        }
+        .reason-textarea {
+            width: 100%;
+            padding: 12px 14px;
+            background: rgba(0,0,0,0.03);
+            border: 2px solid rgba(0,0,0,0.1);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--ink);
+            resize: vertical;
+            min-height: 110px;
+            transition: border-color 0.3s;
+        }
+        .reason-textarea:focus {
+            outline: none;
+            border-color: #3e61ff;
+            background: rgba(62,97,255,0.04);
+        }
+        .char-count {
+            text-align: right;
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
         @media (max-width: 768px) {
             .profile-header { flex-direction: column; text-align: center; }
             .profile-name { font-size: 24px; }
@@ -642,6 +702,71 @@ require_once 'firebase_config.php';
                 </button>
             </div>
         </div>
+
+        <!-- ── Apply as Admin Card ── -->
+        <div class="profile-card" style="text-align: center;">
+            <div class="section-title" style="justify-content: center;">
+                <i class="fas fa-user-shield"></i>
+                Admin Access
+            </div>
+            <p style="color: var(--muted); margin-bottom: 20px; font-size: 14px;">
+                Want to help manage the platform? Submit an admin application and our team will review your request.
+            </p>
+            <button class="admin-apply-btn" id="adminApplyBtn" onclick="openAdminModal()">
+                <i class="fas fa-paper-plane"></i> Apply as Admin
+            </button>
+        </div>
+
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     Apply as Admin Modal
+══════════════════════════════════════════════════════ -->
+<div id="adminModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:480px;">
+        <div class="modal-header">
+            <div class="admin-modal-icon">🛡️</div>
+            <h2 class="modal-title">Apply as Admin</h2>
+            <p class="modal-subtitle">Tell us why you'd like to help manage the platform.</p>
+        </div>
+
+        <div id="adminAlertContainer"></div>
+
+        <div id="adminFormView">
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-user"></i> &nbsp;Full Name</label>
+                <input type="text" id="adminName" class="form-input" placeholder="Your full name">
+            </div>
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-envelope"></i> &nbsp;Email Address</label>
+                <input type="email" id="adminEmail" class="form-input" placeholder="your.email@example.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-comment-alt"></i> &nbsp;Reason for Applying</label>
+                <textarea id="adminReason" class="reason-textarea" maxlength="500"
+                    placeholder="Briefly explain why you want to become an admin and what you can contribute..."
+                    oninput="document.getElementById('reasonCharCount').textContent = this.value.length + ' / 500'"></textarea>
+                <div class="char-count" id="reasonCharCount">0 / 500</div>
+            </div>
+            <button class="btn-primary" id="submitAdminBtn" onclick="submitAdminApplication()"
+                style="background: linear-gradient(135deg,#3e61ff,#8e44ff); box-shadow:0 4px 14px rgba(98,75,255,0.35);">
+                <i class="fas fa-paper-plane"></i> &nbsp;Submit Application
+            </button>
+            <button class="btn-secondary" onclick="closeAdminModal()">Cancel</button>
+        </div>
+
+        <div id="adminSuccessView" style="display:none; text-align:center; padding: 20px 0;">
+            <div style="font-size:64px; margin-bottom:16px;">🎉</div>
+            <h3 style="font-size:22px; font-weight:800; color:#0f8156; margin-bottom:10px;">Application Submitted!</h3>
+            <p style="color:var(--muted); font-size:14px; line-height:1.7; margin-bottom:24px;">
+                Your admin application has been sent. Our team will review it and get back to you via email.
+            </p>
+            <button class="btn-primary" onclick="closeAdminModal()"
+                style="background: linear-gradient(135deg,#3e61ff,#8e44ff); box-shadow:0 4px 14px rgba(98,75,255,0.35);">
+                Done
+            </button>
+        </div>
     </div>
 </div>
 
@@ -670,8 +795,7 @@ require_once 'firebase_config.php';
 
             <p style="font-size:13px; color:var(--muted); margin-bottom:18px; line-height:1.6;">
                 <i class="fas fa-info-circle" style="color:var(--brand);"></i>
-                &nbsp;Fill in your complete address. Verification is only available for residents of
-                <strong>Kingspoint Homes 1 / Kingspoint Subdivision, Brgy. Bagbag, Quezon City</strong>.
+                &nbsp;Fill in your complete address. All fields are required.
             </p>
 
             <div class="form-group">
@@ -1025,60 +1149,19 @@ function updatePreview() {
     }
 }
 
-function normalise(s) {
-    return s.toLowerCase()
-            .replace(/[^a-z0-9\s]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-}
-
-function isAllowedAddress(f) {
-    const CITY = 'quezon city';
-    const BRGY = 'bagbag';
-    const ZIP  = '1116';
-
-    if (normalise(f.city) !== CITY)  return { ok: false, hint: 'City must be Quezon City.' };
-    if (normalise(f.brgy) !== BRGY)  return { ok: false, hint: 'Barangay must be Bagbag.' };
-    if (f.zip && normalise(f.zip) !== ZIP) return { ok: false, hint: 'ZIP code must be 1116.' };
-
-    const subdA  = ['kingspoint subdivision'];
-    const subdB  = ['kingspoint homes 1', 'kingspoint homes'];
-    const stA    = ['king ferdinand street', 'king ferdinand'];
-    const stB    = ['king george street', 'king george'];
-
-    const normSubd   = normalise(f.subd);
-    const normStreet = normalise(f.street);
-
-    const matchA = subdA.some(s => normSubd.includes(s)) && stA.some(s => normStreet.includes(s));
-    const matchB = subdB.some(s => normSubd.includes(s)) && stB.some(s => normStreet.includes(s));
-
-    if (!matchA && !matchB) {
-        return { ok: false, hint: 'Subdivision or street does not match a registered Kingspoint address.' };
-    }
-    return { ok: true };
-}
-
 function verifyAddress() {
     const f = getAddressFields();
-    if (!f.city)   { showAlert('Please select a city.',       'error'); return; }
-    if (!f.brgy)   { showAlert('Please select a barangay.',   'error'); return; }
+    if (!f.city)   { showAlert('Please select a city.',                      'error'); return; }
+    if (!f.brgy)   { showAlert('Please select a barangay.',                  'error'); return; }
     if (!f.subd)   { showAlert('Please enter your subdivision or landmark.', 'error'); return; }
-    if (!f.street) { showAlert('Please enter your street.',   'error'); return; }
-    if (!f.house)  { showAlert('Please enter your house number.', 'error'); return; }
-    if (!f.zip)    { showAlert('Please enter your ZIP code.', 'error'); return; }
+    if (!f.street) { showAlert('Please enter your street name.',             'error'); return; }
+    if (!f.house)  { showAlert('Please enter your house number.',            'error'); return; }
+    if (!f.zip)    { showAlert('Please enter your ZIP code.',                'error'); return; }
 
-    const result = isAllowedAddress(f);
-    if (result.ok) {
-        userData.address = buildAddressString(f);
-        showAlert('Address verified successfully!', 'success');
-        setTimeout(() => goToStep(2), 1000);
-    } else {
-        showAlert(
-            'Address verification failed. ' + result.hint +
-            ' Verification is only available for residents of Kingspoint Homes 1 / Kingspoint Subdivision, Brgy. Bagbag, Quezon City, 1116.',
-            'error'
-        );
-    }
+    // All fields filled — save and proceed
+    userData.address = buildAddressString(f);
+    showAlert('Address saved successfully!', 'success');
+    setTimeout(() => goToStep(2), 1000);
 }
 
 /* ════════════════════════════════════════
@@ -1490,6 +1573,87 @@ function updateProfileDisplay() {
 document.getElementById('verificationModal').addEventListener('click', function(e) {
     if (e.target === this) closeVerificationModal();
 });
+document.getElementById('adminModal').addEventListener('click', function(e) {
+    if (e.target === this) closeAdminModal();
+});
+
+/* ════════════════════════════════════════
+   Apply as Admin
+════════════════════════════════════════ */
+function openAdminModal() {
+    // Pre-fill name & email from current user data
+    document.getElementById('adminName').value  = userData.name  || '';
+    document.getElementById('adminEmail').value = userData.google || '';
+    document.getElementById('adminReason').value = '';
+    document.getElementById('reasonCharCount').textContent = '0 / 500';
+    document.getElementById('adminFormView').style.display    = 'block';
+    document.getElementById('adminSuccessView').style.display = 'none';
+    document.getElementById('adminAlertContainer').innerHTML  = '';
+    document.getElementById('submitAdminBtn').disabled = false;
+    document.getElementById('submitAdminBtn').innerHTML = '<i class="fas fa-paper-plane"></i> &nbsp;Submit Application';
+    document.getElementById('adminModal').classList.add('active');
+}
+
+function closeAdminModal() {
+    document.getElementById('adminModal').classList.remove('active');
+}
+
+async function submitAdminApplication() {
+    const name   = document.getElementById('adminName').value.trim();
+    const email  = document.getElementById('adminEmail').value.trim();
+    const reason = document.getElementById('adminReason').value.trim();
+
+    if (!name)   { showAdminAlert('Please enter your full name.',       'error'); return; }
+    if (!email)  { showAdminAlert('Please enter your email address.',   'error'); return; }
+    if (!reason) { showAdminAlert('Please tell us why you want to apply.', 'error'); return; }
+    if (reason.length < 30) { showAdminAlert('Please write at least 30 characters.', 'error'); return; }
+
+    const btn = document.getElementById('submitAdminBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> &nbsp;Submitting...';
+
+    try {
+        const userId = sessionStorage.getItem('userId') || 'unknown';
+        const appRef = window.firebaseRef(window.firebaseDatabase, 'admin_applications/' + userId);
+        await window.firebaseSet(appRef, {
+            name,
+            email,
+            reason,
+            userId,
+            status:      'pending',
+            appliedAt:   new Date().toISOString(),
+            currentRole: userData.role || 'User'
+        });
+        document.getElementById('adminFormView').style.display    = 'none';
+        document.getElementById('adminSuccessView').style.display = 'block';
+        // Update the button on the profile card
+        const applyBtn = document.getElementById('adminApplyBtn');
+        if (applyBtn) {
+            applyBtn.disabled = true;
+            applyBtn.classList.add('submitted');
+            applyBtn.innerHTML = '<i class="fas fa-check-circle"></i> Application Submitted';
+        }
+    } catch (err) {
+        console.error('Admin apply error:', err);
+        showAdminAlert('Failed to submit. Please try again.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> &nbsp;Submit Application';
+    }
+}
+
+function showAdminAlert(message, type) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+    const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+    document.getElementById('adminAlertContainer').innerHTML = `
+        <div class="alert ${alertClass}">
+            <i class="fas ${icon}"></i>
+            <div>${message}</div>
+        </div>
+    `;
+    if (type === 'error') {
+        setTimeout(() => { document.getElementById('adminAlertContainer').innerHTML = ''; }, 5000);
+    }
+}
 </script>
 
 </body>

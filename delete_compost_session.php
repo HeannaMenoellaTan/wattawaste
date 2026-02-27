@@ -19,10 +19,12 @@
  *   - compost_sessions              (ML training data — untouched)
  *   - sensors/{sensor}/latest       (live readings — untouched)
  *   - controls/motor                (motor state — untouched)
+ *
+ * Also:
+ *   - Deletes all anonymous Firebase Auth users (ESP32 cleanup)
  */
 
 // ── CRITICAL: header + error suppression FIRST, before any other code ────────
-// This ensures even fatal errors can't corrupt the JSON response.
 error_reporting(0);
 ini_set('display_errors', 0);
 header('Content-Type: application/json');
@@ -44,33 +46,60 @@ if (empty($input['confirm'])) {
 // ── Load Firebase AFTER validation ───────────────────────────────────────────
 require_once 'firebase_config.php';
 
+// ── Helper: delete all anonymous Firebase Auth users ─────────────────────────
+function deleteAnonymousFirebaseUsers(): void {
+    try {
+        $factory = (new \Kreait\Firebase\Factory)
+->withServiceAccount('C:/xampp/secure/service-account.json')
+            ->withDatabaseUri('https://wattawaste-d3503-default-rtdb.asia-southeast1.firebasedatabase.app/');
+
+        $auth   = $factory->createAuth();
+        foreach ($auth->listUsers() as $user) {
+            $isAnonymous = empty($user->email)
+                        && empty($user->phoneNumber)
+                        && empty($user->providerData ?? []);
+
+            if ($isAnonymous) {
+                $auth->deleteUser($user->uid);
+            }
+        }
+    } catch (Throwable $e) {
+        // Non-fatal — swallow silently so the main response is never broken
+        error_log('[delete_compost_session] Anonymous user cleanup error: ' . $e->getMessage());
+    }
+}
+
 $sensors = ['temperature', 'humidity', 'gas', 'ph', 'weight'];
 
 try {
     $db = getDatabase();
 
+    // ── Delete sensor history, aggregates, and alerts ─────────────────────────
     foreach ($sensors as $sensor) {
         $db->getReference("sensors/{$sensor}/history")->remove();
         $db->getReference("sensors/{$sensor}/aggregated")->remove();
         $db->getReference("alerts/{$sensor}")->remove();
     }
 
-    // Reset weight baseline to current live weight
+    // ── Reset weight baseline to current live weight ──────────────────────────
     $currentWeight = floatval($db->getReference('sensors/weight/latest')->getValue() ?? 0);
     $db->getReference('sensors/weight/initial')->set($currentWeight);
 
     // ── Clear cycle timer so predict_readiness.php starts a new clock ─────────
     $db->getReference('sensors/weight/cycle_start_ts')->remove();
 
-    // Clear last_session flag
+    // ── Clear last_session flag ───────────────────────────────────────────────
     $db->getReference('sensors/weight/last_session')->remove();
 
-    // Clear aggregator window so cron picks up fresh
+    // ── Clear aggregator window so cron picks up fresh ────────────────────────
     $db->getReference('meta/aggregator/lastRunMs')->remove();
+
+    // ── Delete anonymous Firebase Auth users created by ESP32 ────────────────
+    deleteAnonymousFirebaseUsers();
 
     echo json_encode([
         'success'           => true,
-        'message'           => 'Session deleted. New cycle started.',
+        'message'           => 'Session deleted. Anonymous users cleaned up. New cycle started.',
         'newWeightBaseline' => $currentWeight,
     ]);
 
